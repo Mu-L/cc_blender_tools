@@ -69,151 +69,95 @@ def bone_name_in_armature_regex(arm, name):
     return False
 
 
-def is_G3_action(action):
-    channel = utils.get_action_channelbag(action, slot_type="OBJECT")
-    if channel:
-        if len(channel.fcurves) > 0:
-            for bone_name in rigify_mapping_data.CC3_BONE_NAMES:
-                if not name_in_data_paths(action, bone_name, slot_type="OBJECT"):
+def rig_has_bones(armature: bpy.types.Object, bones: list):
+    if armature:
+        if len(armature.data.bones) > 0:
+            for bone_name in bones:
+                if type(bone_name) is list:
+                    found = False
+                    for bn in bone_name:
+                        if bn in armature.data.bones:
+                            found = True
+                    if not found:
+                        return False
+                elif bone_name not in armature.data.bones:
                     return False
             return True
     return False
+
+
+def action_has_bones(action: bpy.types.Action, bones: list):
+    channel = utils.get_action_channelbag(action, slot_type="OBJECT")
+    if channel:
+        if len(channel.fcurves) > 0:
+            for bone_name in bones:
+                if type(bone_name) is list:
+                    found = False
+                    for bn in bone_name:
+                        if name_in_data_paths(action, bn, slot_type="OBJECT"):
+                            found = True
+                    if not found:
+                        return False
+                elif not name_in_data_paths(action, bone_name, slot_type="OBJECT"):
+                    return False
+            return True
+    return False
+
+
+def is_G3_action(action):
+    return action_has_bones(action, rigify_mapping_data.CC3_BONE_NAMES)
 
 
 def is_G3_armature(armature):
-    if armature:
-        if len(armature.data.bones) > 0:
-            for bone_name in rigify_mapping_data.CC3_BONE_NAMES:
-                if bone_name not in armature.data.bones:
-                    return False
-            return True
-    return False
+    return rig_has_bones(armature, rigify_mapping_data.CC3_BONE_NAMES)
 
 
 def is_iClone_action(action):
-    channel = utils.get_action_channelbag(action, slot_type="OBJECT")
-    if channel:
-        if len(channel.fcurves) > 0:
-            for bone_name in rigify_mapping_data.ICLONE_BONE_NAMES:
-                if not name_in_data_paths(action, bone_name, slot_type="OBJECT"):
-                    return False
-            return True
-    return False
+    return action_has_bones(action, rigify_mapping_data.ICLONE_BONE_NAMES)
 
 
 def is_iClone_armature(armature):
-    if armature:
-        if len(armature.data.bones) > 0:
-            for bone_name in rigify_mapping_data.ICLONE_BONE_NAMES:
-                if bone_name not in armature.data.bones:
-                    return False
-            return True
-    return False
+    return rig_has_bones(armature, rigify_mapping_data.ICLONE_BONE_NAMES)
 
 
 def is_ActorCore_action(action):
-    channel = utils.get_action_channelbag(action, slot_type="OBJECT")
-    if channel:
-        if len(channel.fcurves) > 0:
-            for bone_name in rigify_mapping_data.ACTOR_CORE_BONE_NAMES:
-                if not name_in_data_paths(action, bone_name, slot_type="OBJECT"):
-                    return False
-            return True
-    return False
+    return action_has_bones(action, rigify_mapping_data.ACTOR_CORE_BONE_NAMES)
 
 
 def is_ActorCore_armature(armature):
-    if armature:
-        if len(armature.data.bones) > 0:
-            for bone_name in rigify_mapping_data.ACTOR_CORE_BONE_NAMES:
-                if bone_name not in armature.data.bones:
-                    return False
-            return True
-    return False
+    return rig_has_bones(armature, rigify_mapping_data.ACTOR_CORE_BONE_NAMES)
 
 
 def is_GameBase_action(action):
-    channel = utils.get_action_channelbag(action, slot_type="OBJECT")
-    if channel:
-        if len(channel.fcurves) > 0:
-            for bone_name in rigify_mapping_data.GAME_BASE_BONE_NAMES:
-                if not name_in_data_paths(action, bone_name, slot_type="OBJECT"):
-                    return False
-            return True
-    return False
+    return action_has_bones(action, rigify_mapping_data.GAME_BASE_BONE_NAMES)
 
 
 def is_GameBase_armature(armature):
-    if armature:
-        if len(armature.data.bones) > 0:
-            for bone_name in rigify_mapping_data.GAME_BASE_BONE_NAMES:
-                if bone_name not in armature.data.bones:
-                    return False
-            return True
-    return False
+    return rig_has_bones(armature, rigify_mapping_data.GAME_BASE_BONE_NAMES)
 
 
 def is_Mixamo_action(action):
-    channel = utils.get_action_channelbag(action, slot_type="OBJECT")
-    if channel:
-        if len(channel.fcurves) > 0:
-            for bone_name in rigify_mapping_data.MIXAMO_BONE_NAMES:
-                if not name_in_pose_bone_data_paths_regex(action, bone_name, slot_type="OBJECT"):
-                    return False
-            return True
-    return False
+    return action_has_bones(action, rigify_mapping_data.MIXAMO_BONE_NAMES)
 
 
 def is_Mixamo_armature(armature):
-    if armature:
-        if len(armature.data.bones) > 0:
-            for bone_name in rigify_mapping_data.MIXAMO_BONE_NAMES:
-                if not bone_name_in_armature_regex(armature, bone_name):
-                    return False
-            return True
-    return False
+    return rig_has_bones(armature, rigify_mapping_data.MIXAMO_BONE_NAMES)
 
 
 def is_rigify_action(action):
-    channel = utils.get_action_channelbag(action, slot_type="OBJECT")
-    if channel:
-        if len(channel.fcurves) > 0:
-            for bone_name in rigify_mapping_data.RIGIFY_BONE_NAMES:
-                if not name_in_data_paths(action, bone_name, slot_type="OBJECT"):
-                    return False
-            return True
-    return False
+    return action_has_bones(action, rigify_mapping_data.RIGIFY_BONE_NAMES)
 
 
 def is_rigify_armature(armature):
-    if armature:
-        if len(armature.data.bones) > 0:
-            for bone_name in rigify_mapping_data.RIGIFY_BONE_NAMES:
-                if bone_name not in armature.data.bones:
-                    return False
-            return True
-    return False
+    return rig_has_bones(armature, rigify_mapping_data.RIGIFY_BONE_NAMES)
 
 
 def is_rl_rigify_action(action):
-    channel = utils.get_action_channelbag(action, slot_type="OBJECT")
-    if channel:
-        if len(channel.fcurves) > 0:
-            for bone_name in rigify_mapping_data.RL_RIGIFY_BONE_NAMES:
-                if not name_in_data_paths(action, bone_name, slot_type="OBJECT"):
-                    return False
-            return True
-    return False
+    return action_has_bones(action, rigify_mapping_data.RIGIFY_PLUS_BONE_NAMES)
 
 
-def is_rl_rigify_armature(armature):
-    if armature:
-        if len(armature.data.bones) > 0:
-            for bone_name in rigify_mapping_data.RL_RIGIFY_BONE_NAMES:
-                if bone_name not in armature.data.bones:
-                    return False
-            return True
-    return False
+def is_rigify_plus_armature(armature):
+    return rig_has_bones(armature, rigify_mapping_data.RIGIFY_PLUS_BONE_NAMES)
 
 
 def is_rl_armature(armature):
@@ -254,7 +198,7 @@ def get_armature_action_source_type(armature, action=None):
             return "GameBase", "GameBase (CC3/CC3+)"
         if is_Mixamo_armature(armature):
             return "Mixamo", "Mixamo"
-        if is_rl_rigify_armature(armature):
+        if is_rigify_plus_armature(armature):
             return "Rigify+", "Rigify+"
         if is_rigify_armature(armature):
             return "Rigify", "Rigify"
@@ -269,7 +213,7 @@ def get_armature_action_source_type(armature, action=None):
             return "GameBase", "GameBase (CC3/CC3+)"
         if is_Mixamo_armature(armature) and is_Mixamo_action(action):
             return "Mixamo", "Mixamo"
-        if is_rl_rigify_armature(armature) and is_rl_rigify_action(action):
+        if is_rigify_plus_armature(armature) and is_rl_rigify_action(action):
             return "Rigify+", "Rigify+"
         if is_rigify_armature(armature) and is_rigify_action(action):
             return "Rigify", "Rigify"
@@ -727,9 +671,13 @@ def update_motion_set_index(action):
 
 def load_motion_set(rig, action, move=False, temp=None):
     prefs = vars.prefs()
-    utils.log_info(f"Load Motion Set: {action.name}")
+    if action:
+        utils.log_info(f"Load Motion Set: {action.name}")
+    else:
+        utils.log_info(f"Clearing Motion Set ...")
     # clear the pose and shape-keys first before loading the motion set
     clear_motion_set(rig)
+    arm_action = action
     if action:
         utils.log_indent()
         if prefs.use_action_slots():

@@ -300,13 +300,15 @@ def init_shape_key_range(obj):
                 pass
 
 
-def detect_generation(chr_cache, json_data, character_id):
+def detect_generation(chr_cache, rig, json_data, character_id):
 
     generation = "Unknown"
     if json_data:
         avatar_type = jsonutils.get_json(json_data, f"{character_id}/Avatar_Type")
         json_generation = jsonutils.get_character_generation_json(json_data, chr_cache.get_character_id())
 
+        print(avatar_type)
+        print(json_generation)
         if json_generation and json_generation in vars.CHARACTER_GENERATION:
             generation = vars.CHARACTER_GENERATION[json_generation]
         elif avatar_type == "NonHuman":
@@ -316,7 +318,8 @@ def detect_generation(chr_cache, json_data, character_id):
         elif json_generation is not None and json_generation == "":
             generation = "Humanoid"
         elif json_generation is None:
-            generation = "Prop"
+            rig_generation = rigutils.get_rig_generation(rig)
+            generation = rig_generation if rig_generation != "Unknown" else "Prop"
 
     arm = chr_cache.get_armature()
 
@@ -652,7 +655,7 @@ def process_rl_import(file_path, import_flags, armatures, rl_armatures, cameras,
             utils.log_recess()
 
             # determine character generation
-            chr_cache.generation = detect_generation(chr_cache, json_data, chr_cache.get_character_id())
+            chr_cache.generation = detect_generation(chr_cache, arm, json_data, chr_cache.get_character_id())
             utils.log_info("Generation: " + chr_cache.character_name + " (" + chr_cache.generation + ")")
             arm["rl_generation"] = chr_cache.generation
 
@@ -1375,6 +1378,7 @@ class CC3Import(bpy.types.Operator):
             chr_cache.check_ids()
 
             rig = chr_cache.get_armature()
+            print(chr_cache.cache_type())
 
             if chr_cache.cache_type() != "AVATAR": continue
 
@@ -1540,11 +1544,14 @@ class CC3Import(bpy.types.Operator):
                     rigutils.is_G3_armature(obj) or
                     rigutils.is_iClone_armature(obj)):
                     utils.log_info(f"RL character armature found: {obj.name}")
+                    if avatar_type == "None":
+                        avatar_type = "NoneStandard"
                     import_flags = import_flags | ImportFlags.RL
                     if obj not in rl_armatures:
                         rl_armatures.append(obj)
                 else:
                     if obj not in armatures:
+                        utils.log_info(f"None RL character armature found: {obj.name}")
                         armatures.append(obj)
             elif utils.object_exists_is_camera(obj):
                 if (avatar_type == "CAMERA" or

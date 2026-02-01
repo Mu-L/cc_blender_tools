@@ -1245,7 +1245,7 @@ CC3_BONE_NAMES = [
 ]
 
 ACTOR_CORE_BONE_NAMES = [
-    "RL_BoneRoot", "CC_Base_Hip", "CC_Base_FacialBone"
+    ["RL_BoneRoot", "root"], "CC_Base_Hip", "CC_Base_FacialBone"
 ]
 
 
@@ -1274,7 +1274,7 @@ RIGIFY_BONE_NAMES = [
 ]
 
 # bone names to test for to see if armature or action is for a rigify rig
-RL_RIGIFY_BONE_NAMES = [
+RIGIFY_PLUS_BONE_NAMES = [
     "MCH-torso.parent", "ORG-spine", "spine_fk", "DEF-elbow_share.L", "DEF-elbow_share.R"
 ]
 

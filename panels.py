@@ -134,7 +134,7 @@ def reconnect_character_ui(context, layout: bpy.types.UILayout, chr_cache):
     if not context.selected_objects:
         rig = None
     wrapped_text_box(layout, "Linking", width, alert=False, icon="LINKED")
-    if not chr_cache and rig and rigutils.is_rl_rigify_armature(rig):
+    if not chr_cache and rig and rigutils.is_rigify_plus_armature(rig):
         row = layout.row()
         row.scale_y = 1.5
         op = row.operator("ccic.characterlink", icon="OUTLINER_OB_ARMATURE", text="Connect Rigified").param = "CONNECT"
@@ -3059,6 +3059,9 @@ def scene_panel_draw(self : bpy.types.Panel, context : bpy.types.Context):
         box = layout.box()
         box.label(text="Renderer", icon="SHADING_RENDERED")
         column = layout.column()
+        row = column.row()
+        row.alert = True
+        row.label(text="Invalidates Character for round trip", icon="ERROR")
         row = column.row()
         row.scale_y = 2.0
         row.operator("cc3.scene", icon="PLAY", text="Cycles Setup").param = "CYCLES_SETUP"

@@ -45,6 +45,7 @@ Links
 - Fix to Facerig following root position.
 - Fix to shape key export baking.
 - Fix to bad vertex weights when skinning the rigify face rig on SubD 1/2 characters.
+- Fix to material merge (InstaLod) character detection.
 
 ### 2.3.4
 - Add / apply physics resets physics to frame 1.

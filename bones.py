@@ -1008,17 +1008,25 @@ def copy_position(rig, bone, copy_bones, offset):
     return None
 
 
-def is_bone_in_collections(rig, bone: bpy.types.Bone, collections=None, groups=None, layers=None):
+def is_bone_in_collections(rig, bone: any, collections=None, groups=None, layers=None):
+    if type(bone) is str:
+        bone_name = bone
+        try:
+            bone = rig.data.bones[bone_name]
+        except:
+            return False
+    else:
+        bone_name = bone.name
     if utils.B400():
         if collections:
             for collection in collections:
                 if collection in rig.data.collections:
-                    if bone.name in rig.data.collections[collection].bones:
+                    if bone_name in rig.data.collections[collection].bones:
                         return True
     else:
         if groups:
-            if bone.name in rig.pose.bones:
-                pose_bone: bpy.types.PoseBone = rig.pose.bones[bone.name]
+            if bone_name in rig.pose.bones:
+                pose_bone: bpy.types.PoseBone = rig.pose.bones[bone_name]
                 if pose_bone.bone_group and pose_bone.bone_group.name in groups:
                     return True
         if layers:
@@ -1028,6 +1036,18 @@ def is_bone_in_collections(rig, bone: bpy.types.Bone, collections=None, groups=N
             return True
 
     return False
+
+
+def move_bone_collection(rig, collection_from, collection_to, bones: list=None):
+    if utils.B400():
+        if collection_from and collection_to and collection_from in rig.data.collections:
+            if not collection_to in rig.data.collections:
+                rig.data.collections.new(collection_to)
+            bone_collection_from = rig.data.collections[collection_from]
+            bone_collection_to = rig.data.collections[collection_to]
+            for bone in bone_collection_from.bones:
+                bone_collection_from.unassign(bone)
+                bone_collection_to.assign(bone)
 
 
 def set_bone_collection(rig, pose_edit_bone, collection=None, group=None, layer=None, color=None):
@@ -1213,6 +1233,8 @@ def add_bone_collection(arm: bpy.types.Object, collection_name, group_name=None,
                     bone_group.colors.select = utils.linear_to_srgb((0.313989, 0.783538, 1.000000))
                     bone_group.colors.active = utils.linear_to_srgb((0.552011, 1.000000, 1.000000))
         return arm.pose.bone_groups[group_name]
+
+
 
 
 def assign_rl_base_collections(rig):

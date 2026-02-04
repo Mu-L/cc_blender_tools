@@ -299,7 +299,7 @@ def init_shape_key_range(obj):
             except:
                 pass
 
-
+# region detect_generation
 def detect_generation(chr_cache, rig, json_data, character_id):
 
     generation = "Unknown"
@@ -399,6 +399,7 @@ def detect_generation(chr_cache, rig, json_data, character_id):
 
     utils.log_info(f"Detected Character Generation: {generation}")
     return generation
+# endregion
 
 
 def is_iclone_temp_motion(name : str):
@@ -524,7 +525,7 @@ def process_root_bones(arm, json_data, name):
                 pose_bone["root_id"] = sub_link_id
                 pose_bone["root_type"] = type
 
-
+# region process_rl_import
 def process_rl_import(file_path, import_flags, armatures, rl_armatures, cameras, lights,
                       objects: list,
                       actions, json_data, report, link_id, only_objects=None, motion_prefix=""):
@@ -867,6 +868,7 @@ def process_rl_import(file_path, import_flags, armatures, rl_armatures, cameras,
 
     utils.log_info("")
     return imported_characters
+# endregion
 
 
 def obj_import(file_path, split_objects=False, split_groups=False, vgroups=False):
@@ -1026,7 +1028,7 @@ class CC3Import(bpy.types.Operator):
 
         return json_data
 
-
+    # region import_character
     def import_character(self, context):
         props = vars.props()
         prefs = vars.prefs()
@@ -1243,8 +1245,9 @@ class CC3Import(bpy.types.Operator):
                     self.imported_character_ids.append(chr_cache.link_id)
 
                 utils.log_timer("Done .USD Import?")
+    # endregion
 
-
+    # region build_materials
     def build_materials(self, context, render_target=None):
         objects_processed = []
         props = vars.props()
@@ -1341,8 +1344,9 @@ class CC3Import(bpy.types.Operator):
                 bpy.context.scene.eevee.use_ssr_refraction = True
 
         utils.log_timer("Done Build.", "s")
+    # endregion
 
-
+    # region build_drivers
     def build_drivers(self, context, rebuild_wrinkle=False):
         props = vars.props()
         prefs = vars.prefs()
@@ -1417,6 +1421,7 @@ class CC3Import(bpy.types.Operator):
                 wrinkle.build_wrinkle_drivers(chr_cache, chr_json, wrinkle_shader_name=wrinkle.WRINKLE_SHADER_NAME)
 
         utils.log_timer("Done Build.", "s")
+    # endregion
 
 
     def remove_drivers(self, context):

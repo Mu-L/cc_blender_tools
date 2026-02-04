@@ -6,7 +6,7 @@ import atexit
 import os, socket, time, select, struct, json, copy, shutil, tempfile
 #import subprocess
 from mathutils import Vector, Quaternion, Matrix, Color, Euler
-from . import (rlx, importer, exporter, bones, geom, colorspace,
+from . import (rlx, importer, exporter, facerig, bones, geom, colorspace,
                world, rigging, rigutils, drivers, modifiers,
                cc, jsonutils, utils, vars)
 from typing import Tuple, List
@@ -1013,9 +1013,10 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
                 actor.ik_store["ik_fk"] = rigutils.get_rigify_ik_fk_influence(rig)
                 rigutils.set_rigify_ik_fk_influence(rig, 1.0)
 
+                ccic240_arrangement = facerig.is_ccic_240_rig(rig)
+
                 BAKE_BONE_GROUPS = ["FK", "IK", "Special", "Root", "Face"] #not Tweak and Extra
-                BAKE_BONE_COLLECTIONS = ["Face", #"Face (Primary)", "Face (Secondary)",
-                                         "Face (Expressions)",
+                BAKE_BONE_COLLECTIONS = ["Face",
                                          "Torso", "Torso (Tweak)",
                                          "Fingers", "Fingers (Detail)",
                                          "Arm.L (IK)", "Arm.L (FK)", "Arm.L (Tweak)",
@@ -1023,8 +1024,14 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
                                          "Arm.R (IK)", "Arm.R (FK)", "Arm.R (Tweak)",
                                          "Leg.R (IK)", "Leg.R (FK)", "Leg.R (Tweak)",
                                          "Root"]
-                SHOW_BONE_COLLECTIONS = [ "Face (UI)" ]
-                SHOW_BONE_COLLECTIONS.extend(BAKE_BONE_COLLECTIONS)
+
+                if ccic240_arrangement:
+                    BAKE_BONE_COLLECTIONS += ["Face (Primary)"]
+                    SHOW_BONE_COLLECTIONS = BAKE_BONE_COLLECTIONS.copy()
+                else:
+                    BAKE_BONE_COLLECTIONS += ["Face (Expressions)"]
+                    SHOW_BONE_COLLECTIONS = [ "Face (UI)" ] + BAKE_BONE_COLLECTIONS
+
                 # These bones may need to have their pose reset as they are damped tracked in the rig:
                 #    - adv pair rigs now resets all pose bones.
                 BAKE_BONE_EXCLUSIONS = [
@@ -1034,9 +1041,9 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
                 BAKE_BONE_LAYERS = [0,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,22,28]
                 SHOW_BONE_LAYERS = [ 23 ]
                 SHOW_BONE_LAYERS.extend(BAKE_BONE_LAYERS)
-                if rigutils.is_face_rig(rig):
-                    SHOW_BONE_COLLECTIONS.remove("Face")
-                    SHOW_BONE_LAYERS.remove(0)
+                #if rigutils.is_face_rig(rig) and not ccic240_arrangement:
+                #    SHOW_BONE_COLLECTIONS.remove("Face")
+                #    SHOW_BONE_LAYERS.remove(0)
                 if utils.object_mode_to(rig):
                     bone: bpy.types.Bone
                     pose_bone: bpy.types.PoseBone
@@ -3775,7 +3782,7 @@ class LinkService():
             else:
                 self.do_update_replace(name, link_id, fbx_path, character_type, True,
                                        objects_to_replace_names=None,
-                                       replace_actions=True)
+                                       replace_actions=False)
         else:
             update_link_status(f"Receving Character Import: {name}")
             self.do_file_import(fbx_path, link_id, save_after_import)
@@ -4332,6 +4339,8 @@ class LinkService():
                             utils.log_info(f"Deleting unused image file: {img_path}")
                             os.remove(full_path)
 
+                # replace_actions is True only when sending a new replacement character (through Send Actor)
+                # Send Update / Replace will not replace the action and should load the old one
                 if not replace_actions:
                     # remove temp chr actions (motion set)
                     if temp_rig_action:
@@ -4363,14 +4372,11 @@ class LinkService():
                 temp_rig.rotation_euler = rig.rotation_euler
                 temp_rig.rotation_axis_angle = rig.rotation_axis_angle
 
+                # replace_actions is True only when sending a new replacement character (through Send Actor)
+                # Send Update / Replace will not replace the action and should load the old one
                 if not replace_actions:
-                    # remove temp chr actions (motion set)
                     if temp_rig_action:
                         rigutils.delete_motion_set(temp_rig_action)
-
-                    # copy/retarget actions from original rig to the replacement
-                    if rig_action:
-                        rigutils.load_motion_set(rig, rig_action, move=True)
 
                 link_id = chr_cache.link_id
                 character_name = chr_cache.character_name
@@ -4386,6 +4392,12 @@ class LinkService():
                     rig_obj_cache.object_id = rl_armature_id
                 utils.force_object_name(temp_rig, rig_name)
                 utils.force_armature_name(temp_rig.data, rig_data_name)
+
+                if not replace_actions:
+                    if rig_action:
+                        # reload the old motion back into the new character
+                        # rig will be destroyed and temp_rig will take it's place
+                        rigutils.load_motion_set(temp_rig, rig_action)
 
                 # remove the original character
                 # do this last as it invalidates the references

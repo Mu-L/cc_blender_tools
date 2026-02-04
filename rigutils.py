@@ -672,7 +672,7 @@ def update_motion_set_index(action):
 def load_motion_set(rig, action, move=False, temp=None):
     prefs = vars.prefs()
     if action:
-        utils.log_info(f"Load Motion Set: {action.name}")
+        utils.log_info(f"Load Motion Set: {action.name} {'Move ' if move else ''}{'Temp ' if temp else ''}")
     else:
         utils.log_info(f"Clearing Motion Set ...")
     # clear the pose and shape-keys first before loading the motion set
@@ -1334,6 +1334,11 @@ def is_face_rig(rig):
     return ("facerig" in rig.pose.bones)
 
 
+BASE_RIG_COLLECTION_CCIC240 = ["Face (Primary)", "Face (Secondary)",
+                       "Torso", "Torso (Tweak)", "Fingers", "Fingers (Detail)",
+                       "Arm.L (IK)", "Arm.L (FK)", "Arm.L (Tweak)", "Leg.L (IK)", "Leg.L (FK)", "Leg.L (Tweak)",
+                       "Arm.R (IK)", "Arm.R (FK)", "Arm.R (Tweak)", "Leg.R (IK)", "Leg.R (FK)", "Leg.R (Tweak)",
+                       "Root" ]
 BASE_RIG_COLLECTION = ["Face", "Face (Primary)", "Face (Secondary)",
                        "Torso", "Torso (Tweak)", "Fingers", "Fingers (Detail)",
                        "Arm.L (IK)", "Arm.L (FK)", "Arm.L (Tweak)", "Leg.L (IK)", "Leg.L (FK)", "Leg.L (Tweak)",
@@ -1343,6 +1348,12 @@ BASE_RIG_LAYERS = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,28]
 BASE_DEF_COLLECTION = ["DEF"]
 BASE_DEF_LAYERS = [29]
 
+FULL_RIG_COLLECTION_CCIC240 = ["Face", "Face (Primary)", "Face (Secondary)",
+                       "Torso", "Torso (Tweak)", "Fingers", "Fingers (Detail)",
+                       "Arm.L (IK)", "Arm.L (FK)", "Arm.L (Tweak)", "Leg.L (IK)", "Leg.L (FK)", "Leg.L (Tweak)",
+                       "Arm.R (IK)", "Arm.R (FK)", "Arm.R (Tweak)", "Leg.R (IK)", "Leg.R (FK)", "Leg.R (Tweak)",
+                       "Root",
+                       "Spring (IK)", "Spring (FK)", "Spring (Tweak)"]
 FULL_RIG_COLLECTION = ["Face", "Face (Primary)", "Face (Secondary)",
                        "Torso", "Torso (Tweak)", "Fingers", "Fingers (Detail)",
                        "Arm.L (IK)", "Arm.L (FK)", "Arm.L (Tweak)", "Leg.L (IK)", "Leg.L (FK)", "Leg.L (Tweak)",
@@ -1359,8 +1370,10 @@ SPRING_RIG_LAYERS = [19,20,21]
 SPRING_DEF_COLLECTION = ["Spring (Edit)", "Spring (Root)"]
 SPRING_DEF_LAYERS = [24,25]
 
+FACE_RIG_COLLECTION_CCIC240 = ["Face"]
 FACE_RIG_COLLECTION = ["Face (Expressions)", "Face (UI)"]
 FACE_RIG_LAYERS = [22,23]
+FACE_RIG_HIDE_CCIC240 = ["Face (Primary)", "Face (Secondary)"]
 FACE_RIG_HIDE = ["Face", "Face (Primary)", "Face (Secondary)"]
 FACE_RIG_HIDE_LAYERS = [0,1,2]
 
@@ -1379,12 +1392,14 @@ def show_hide_collections_layers(rig, collections, layers, show=True):
 
 def is_full_rigify_rig_shown(rig):
     if rig:
+        FRC = FULL_RIG_COLLECTION_CCIC240 if facerig.is_ccic_240_rig(rig) else FULL_RIG_COLLECTION
+        FRH = FACE_RIG_HIDE_CCIC240 if facerig.is_ccic_240_rig(rig) else FACE_RIG_HIDE
         face_rig = is_face_rig(rig)
         if utils.B400():
             for collection in rig.data.collections:
-                if face_rig and collection.name in FACE_RIG_HIDE:
+                if face_rig and collection.name in FRH:
                     continue
-                if collection.name in FULL_RIG_COLLECTION and not collection.is_visible:
+                if collection.name in FRC and not collection.is_visible:
                     return False
         else:
             for i in range(0, 32):
@@ -1399,21 +1414,24 @@ def is_full_rigify_rig_shown(rig):
 
 def toggle_show_full_rig(rig):
     if rig:
+        FRC = FULL_RIG_COLLECTION_CCIC240 if facerig.is_ccic_240_rig(rig) else FULL_RIG_COLLECTION
+        BRC = BASE_RIG_COLLECTION_CCIC240 if facerig.is_ccic_240_rig(rig) else BASE_RIG_COLLECTION
+        FRH = FACE_RIG_HIDE_CCIC240 if facerig.is_ccic_240_rig(rig) else FACE_RIG_HIDE
         face_rig = is_face_rig(rig)
         show = not is_full_rigify_rig_shown(rig)
         if utils.B400():
             if show:
                 for collection in rig.data.collections:
-                    if face_rig and collection.name in FACE_RIG_HIDE:
+                    if face_rig and collection.name in FRH:
                         collection.is_visible = False
                     else:
-                        collection.is_visible = collection.name in FULL_RIG_COLLECTION
+                        collection.is_visible = collection.name in FRC
             else:
                 for collection in rig.data.collections:
-                    if face_rig and collection.name in FACE_RIG_HIDE:
+                    if face_rig and collection.name in FRH:
                         collection.is_visible = False
                     else:
-                        collection.is_visible = collection.name in BASE_RIG_COLLECTION
+                        collection.is_visible = collection.name in BRC
         else:
             if show:
                 rig.data.layers[vars.ROOT_BONE_LAYER] = True
@@ -1431,12 +1449,14 @@ def toggle_show_full_rig(rig):
 
 def is_base_rig_shown(rig):
     if rig:
+        FRH = FACE_RIG_HIDE_CCIC240 if facerig.is_ccic_240_rig(rig) else FACE_RIG_HIDE
+        BRC = BASE_RIG_COLLECTION_CCIC240 if facerig.is_ccic_240_rig(rig) else BASE_RIG_COLLECTION
         face_rig = is_face_rig(rig)
         if utils.B400():
             for collection in rig.data.collections:
-                if face_rig and collection.name in FACE_RIG_HIDE:
+                if face_rig and collection.name in FRH:
                     continue
-                if collection.name in BASE_RIG_COLLECTION and not collection.is_visible:
+                if collection.name in BRC and not collection.is_visible:
                     return False
         else:
             for i in range(0, 32):
@@ -1451,6 +1471,8 @@ def is_base_rig_shown(rig):
 
 def toggle_show_base_rig(rig):
     if rig:
+        FRH = FACE_RIG_HIDE_CCIC240 if facerig.is_ccic_240_rig(rig) else FACE_RIG_HIDE
+        BRC = BASE_RIG_COLLECTION_CCIC240 if facerig.is_ccic_240_rig(rig) else BASE_RIG_COLLECTION
         show = True
         face_rig = is_face_rig(rig)
         if is_full_rigify_rig_shown(rig):
@@ -1460,10 +1482,10 @@ def toggle_show_base_rig(rig):
         if utils.B400():
             if show:
                 for collection in rig.data.collections:
-                    if face_rig and collection.name in FACE_RIG_HIDE:
+                    if face_rig and collection.name in FRH:
                         collection.is_visible = False
                     else:
-                        collection.is_visible = collection.name in BASE_RIG_COLLECTION
+                        collection.is_visible = collection.name in BRC
             else:
                 for collection in rig.data.collections:
                     collection.is_visible = collection.name in BASE_DEF_COLLECTION
@@ -1528,26 +1550,28 @@ def is_only_face_rig_shown(rig):
     only_shown = False
     shown = True
     if rig:
+        FRC = FACE_RIG_COLLECTION_CCIC240 if facerig.is_ccic_240_rig(rig) else FACE_RIG_COLLECTION
         if utils.B400():
+
             for collection in rig.data.collections:
-                if collection.name in FACE_RIG_COLLECTION:
+                if collection.name in FRC:
                     if collection.is_visible:
                         only_shown = True
                     else:
                         shown = False
             for collection in rig.data.collections:
-                if collection.name not in FACE_RIG_COLLECTION:
+                if collection.name not in FRC:
                     if collection.is_visible:
                         return shown, False
         else:
             for layer in range(0, 32):
-                if layer in FACE_RIG_COLLECTION:
+                if layer in FRC:
                     if rig.data.layers[layer]:
                         only_shown = True
                     else:
                         shown = False
             for layer in range(0, 32):
-                if layer not in FACE_RIG_COLLECTION:
+                if layer not in FRC:
                     if rig.data.layers[layer]:
                         return shown, False
     return shown, only_shown
@@ -1555,11 +1579,14 @@ def is_only_face_rig_shown(rig):
 
 def toggle_show_only_face_rig(rig):
     if rig:
+        FRC = FACE_RIG_COLLECTION_CCIC240 if facerig.is_ccic_240_rig(rig) else FACE_RIG_COLLECTION
+        BRC = BASE_RIG_COLLECTION_CCIC240 if facerig.is_ccic_240_rig(rig) else BASE_RIG_COLLECTION
+        FRH = FACE_RIG_HIDE_CCIC240 if facerig.is_ccic_240_rig(rig) else FACE_RIG_HIDE
         face_rig = is_face_rig(rig)
         show_only = False
         if utils.B400():
             for collection in rig.data.collections:
-                if collection.name not in FACE_RIG_COLLECTION and collection.is_visible:
+                if collection.name not in FRC and collection.is_visible:
                     show_only = True
         else:
             for layer in range(0, 32):
@@ -1569,13 +1596,13 @@ def toggle_show_only_face_rig(rig):
         if utils.B400():
             if show_only:
                 for collection in rig.data.collections:
-                    collection.is_visible = collection.name in FACE_RIG_COLLECTION
+                    collection.is_visible = collection.name in FRC
             else:
                 for collection in rig.data.collections:
-                    if face_rig and collection.name in FACE_RIG_HIDE:
+                    if face_rig and collection.name in FRH:
                         collection.is_visible = False
                     else:
-                        collection.is_visible = collection.name in BASE_RIG_COLLECTION
+                        collection.is_visible = collection.name in BRC
         else:
             if show_only:
                 rig.data.layers[22] = True
@@ -3207,7 +3234,7 @@ def fetch_action_curve_database(source_action):
     source_key_actions = [a for a in source_actions["keys"].values()]
     arm_actions = [a.copy() for a in source_arm_actions]
     key_actions = [a.copy() for a in source_key_actions]
-    for arm_action in key_actions:
+    for arm_action in arm_actions:
         arm_action.name = "DB_AC_TMP"
     for key_action in key_actions:
         key_action.name = "DB_KC_TMP"
@@ -3217,6 +3244,11 @@ def fetch_action_curve_database(source_action):
     database["source_key_actions"] = source_key_actions
     database["arm_actions"] = arm_actions
     database["key_actions"] = key_actions
+    all_actions = []
+    database["all_actions"] = all_actions
+    for a in source_arm_actions + source_key_actions + arm_actions + key_actions:
+        if a not in all_actions:
+            all_actions.append(a)
     database["curves"] = data_curves
     if utils.B440():
         all_actions = arm_actions + key_actions
@@ -3526,14 +3558,15 @@ def load_slotted_action(rig, action: bpy.types.Action, move=False, temp=None):
         action.slots.remove(slot)
 
     # remove all database copies
-    delete_actions = [database["arm_actions"]] + database["key_actions"]
+    delete_actions = database["arm_actions"] + database["key_actions"]
     if move or not use_new_motion_set:
         # remove old actions if moving to a new motion set
         delete_actions += database["source_arm_actions"] + database["source_key_actions"]
     # remove actions, except this action
     for delete_action in delete_actions:
-        if utils.action_exists(delete_action) and delete_action != action:
-            bpy.data.actions.remove(delete_action)
+        if utils.action_exists(delete_action):
+            if delete_action != action:
+                bpy.data.actions.remove(delete_action)
 
     # ensure the action knows it is slotted
     utils.set_prop(action, "rl_action_type", "SLOTTED")

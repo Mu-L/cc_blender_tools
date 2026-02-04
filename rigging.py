@@ -2843,6 +2843,8 @@ IK_BONE_COLLECTIONS = ["Face", "Face (Primary)", "Face (Secondary)", "Face (Expr
 EXTRA_FK_BAKE_COLLECTIONS = [ "Face (Expressions)" ]
 EXTRA_IK_BAKE_COLLECTIONS = [ "Face (Expressions)" ]
 EXTRA_GROUPS = [ "Face" ]
+EXCLUDE_BONES = ["faceig", "facerig_name", "facerig_groups", "facerig_labels",
+                 "faceig2", "facerig2_groups", "facerig2_labels"]
 
 
 def adv_bake_retarget_to_rigify(op, chr_cache, source_rig, source_action):
@@ -2884,7 +2886,7 @@ def adv_bake_retarget_to_rigify(op, chr_cache, source_rig, source_action):
             bone : bpy.types.Bone
             bones.select_all_bones(rigify_rig, False)
             for bone in rigify_rig.data.bones:
-                if bone.name in rigify_mapping_data.RETARGET_RIGIFY_BONES:
+                if bone.name in rigify_mapping_data.RETARGET_RIGIFY_BONES and bone.name not in EXCLUDE_BONES:
                     if bones.is_bone_in_collections(rigify_rig, bone,
                                                     BONE_COLLECTIONS,
                                                     BONE_GROUPS):
@@ -2945,10 +2947,11 @@ def adv_bake_NLA_to_rigify(op, chr_cache, motion_id=None, motion_prefix=None):
         bones.make_bones_visible(rigify_rig)
         bones.select_all_bones(rigify_rig, False)
         for bone in rigify_rig.data.bones:
-            if bones.is_bone_in_collections(rigify_rig, bone,
-                                            BONE_COLLECTIONS,
-                                            BONE_GROUPS):
-                bones.select_bone(rigify_rig, bone, True)
+            if bone.name not in EXCLUDE_BONES:
+                if bones.is_bone_in_collections(rigify_rig, bone,
+                                                BONE_COLLECTIONS,
+                                                BONE_GROUPS):
+                    bones.select_bone(rigify_rig, bone, True)
 
         shape_key_objects = []
         if prefs.rigify_bake_shape_keys:

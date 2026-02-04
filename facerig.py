@@ -146,6 +146,11 @@ def get_facerig_config(chr_cache):
     return None
 
 
+def is_ccic_240_rig(rig):
+    result = bones.is_bone_in_collections(rig, "facerig", ["Face"])
+    return result
+
+
 def build_facerig(chr_cache, rigify_rig, meta_rig, cc3_rig):
     prefs = vars.prefs()
 
@@ -315,13 +320,19 @@ def build_facerig(chr_cache, rigify_rig, meta_rig, cc3_rig):
 
         bones.add_bone_collection(rigify_rig, "Face (Expressions)", "Face", color_set="CUSTOM", custom_color=chr_cache.rigify_face_control_color, lerp=0)
         bones.add_bone_collection(rigify_rig, "Face (UI)", "UI", color_set="CUSTOM", custom_color=(1,1,1))
-        bones.set_bone_collection_visibility(rigify_rig, "Face (Expressions)", 22, True)
-        bones.set_bone_collection_visibility(rigify_rig, "Face (UI)", 23, True)
+        bones.move_bone_collection(rigify_rig, "Face (Primary)", "Face (Secondary)")
+        bones.move_bone_collection(rigify_rig, "Face", "Face (Primary)")
+        exp_ui_vis = False if utils.B400() else True
+        bones.set_bone_collection_visibility(rigify_rig, "Face (Expressions)", 22, exp_ui_vis)
+        bones.set_bone_collection_visibility(rigify_rig, "Face (UI)", 23, exp_ui_vis)
 
         bones.set_bone_collection(rigify_rig, "MCH-jaw_move", "MCH", None, 30)
         bones.set_bone_collection(rigify_rig, "MCH-facerig", "MCH", None, 30)
         bones.set_bone_collection(rigify_rig, "MCH-facerig_controls", "MCH", None, 30)
         bones.set_bone_collection(rigify_rig, "MCH-facerig_parent", "MCH", None, 30)
+        bones.set_bone_collection(rigify_rig, "MCH-CTRL-eye.L", "MCH", None, 30)
+        bones.set_bone_collection(rigify_rig, "MCH-CTRL-eye.R", "MCH", None, 30)
+
         if facial_profile == "MH":
             bones.set_bone_collection(rigify_rig, "MCH-facerig2", "MCH", None, 30)
             bones.set_bone_collection(rigify_rig, "MCH-facerig2_controls", "MCH", None, 30)
@@ -339,6 +350,7 @@ def build_facerig(chr_cache, rigify_rig, meta_rig, cc3_rig):
             pose_bone = bones.get_pose_bone(rigify_rig, bone_name)
             if pose_bone:
                 bones.set_bone_collection(rigify_rig, pose_bone, "Face (UI)", bone_groups[i], 23)
+                bones.set_bone_collection(rigify_rig, pose_bone, "Face")
                 bones.set_bone_color(rigify_rig, pose_bone, bone_colors[i])
                 pose_bone.custom_shape = bone_shapes[i]
                 pose_bone.custom_shape_scale_xyz = bone_scale
@@ -362,8 +374,10 @@ def build_facerig(chr_cache, rigify_rig, meta_rig, cc3_rig):
             hue_shift = control_def.get("color_shift", 0.0)
             bones.keep_locks(nub_bone)
             bones.set_bone_collection(rigify_rig, line_bone, "Face (UI)", "Face", 22)
+            bones.set_bone_collection(rigify_rig, line_bone, "Face")
             bones.set_bone_color(rigify_rig, line_bone, "FACERIG_DARK", "FACERIG_DARK", "FACERIG_DARK", chr_cache=chr_cache, hue_shift=hue_shift)
             bones.set_bone_collection(rigify_rig, nub_bone, "Face (Expressions)", "Face", 22)
+            bones.set_bone_collection(rigify_rig, nub_bone, "Face")
             bones.set_bone_color(rigify_rig, nub_bone, "FACERIG", "FACERIG", "FACERIG", chr_cache=chr_cache, hue_shift=hue_shift)
             control_range_y = control_def["range"]
             y_invert = control_range_y[1] < control_range_y[0]
@@ -399,8 +413,10 @@ def build_facerig(chr_cache, rigify_rig, meta_rig, cc3_rig):
             hue_shift = control_def.get("color_shift", 0.0)
             bones.keep_locks(nub_bone)
             bones.set_bone_collection(rigify_rig, box_bone, "Face (UI)", "Face", 22)
+            bones.set_bone_collection(rigify_rig, box_bone, "Face")
             bones.set_bone_color(rigify_rig, box_bone, "FACERIG_DARK", "FACERIG_DARK", "FACERIG_DARK", chr_cache=chr_cache, hue_shift=hue_shift)
             bones.set_bone_collection(rigify_rig, nub_bone, "Face (Expressions)", "Face", 22)
+            bones.set_bone_collection(rigify_rig, nub_bone, "Face")
             bones.set_bone_color(rigify_rig, nub_bone, "FACERIG", "FACERIG", "FACERIG", chr_cache=chr_cache, hue_shift=hue_shift)
             control_range_x = control_def["x_range"]
             control_range_y = control_def["y_range"]
@@ -868,7 +884,7 @@ def build_facerig_drivers(chr_cache, rigify_rig):
 
     if rigutils.select_rig(rigify_rig):
 
-        bones.set_bone_collection_visibility(rigify_rig, "Face", 0, False)
+        #bones.set_bone_collection_visibility(rigify_rig, "Face", 0, False)
         bones.set_bone_collection_visibility(rigify_rig, "Face (Primary)", 1, False)
         bones.set_bone_collection_visibility(rigify_rig, "Face (Secondary)", 2, False)
 

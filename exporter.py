@@ -1476,7 +1476,7 @@ def write_pbr_material_to_json(context, mat, mat_json, path, name, bake_values):
                 if type(strength_trace) is list:
                     for st in strength_trace:
                         strength *= float(nodeutils.trace_input_value(n, st, 1.0))
-                else:
+                elif strength_trace:
                     strength = float(nodeutils.trace_input_value(n, strength_trace, 1.0))
                 if tex_id == "Bump":
                     strength = min(200, max(0, strength * 10000.0))

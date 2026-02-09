@@ -1325,7 +1325,7 @@ def connect_hair_shader(obj_cache, obj, mat, mat_json, processed_images):
         mat.use_sss_translucency = True
 
 
-def connect_pbr_shader(obj_cache, obj, mat: bpy.types.Material, mat_json, processed_images, ext_eyelash):
+def connect_pbr_shader(obj_cache, obj, mat: bpy.types.Material, mat_json, processed_images, ext_eyelash=False):
     props = vars.props()
     prefs = vars.prefs()
 

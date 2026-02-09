@@ -1435,17 +1435,17 @@ def write_pbr_material_to_json(context, mat, mat_json, path, name, bake_values):
             emission_socket = nodeutils.input_socket(bsdf_node, "Emission")
             emission_strength_socket = nodeutils.input_socket(bsdf_node, "Emission Strength")
 
-            roughness_value = roughness_socket.default_value
-            metallic_value = metallic_socket.default_value
+            roughness_value = nodeutils.extract_socket_value(roughness_socket.default_value, 1.0)
+            metallic_value = nodeutils.extract_socket_value(metallic_socket.default_value, 0.0)
             bake_roughness = False
             bake_metallic = False
-            specular_value = specular_socket.default_value
+            specular_value = nodeutils.extract_socket_value(specular_socket.default_value, 0.5)
             diffuse_color = (1,1,1,1)
             alpha_value = 1.0
             if not base_color_socket.is_linked:
-                diffuse_color = base_color_socket.default_value
+                diffuse_color = nodeutils.extract_socket_color(base_color_socket.default_value, (1,1,1,1))
             if not alpha_socket.is_linked:
-                alpha_value = alpha_socket.default_value
+                alpha_value = nodeutils.extract_socket_value(alpha_socket.default_value, 1.0)
             mat_json["Diffuse Color"] = jsonutils.convert_from_color(diffuse_color)
             mat_json["Specular Color"] = jsonutils.convert_from_color(
                         utils.linear_to_srgb((specular_value, specular_value, specular_value, 1.0))
@@ -1546,7 +1546,8 @@ def write_or_bake_tex_data_to_json(context, socket_mapping, mat, mat_json, bsdf_
                 image = bake.bake_bsdf_normal(context, bsdf_node, mat, tex_id, bake_path)
             else:
                 if bake_value:
-                    image = bake.pack_value_image(socket.default_value, mat, tex_id, bake_path)
+                    value = nodeutils.extract_socket_value(socket.default_value, 1.0)
+                    image = bake.pack_value_image(value, mat, tex_id, bake_path)
                 else:
                     image = bake.bake_node_socket_output(context, node, socket, mat, tex_id, bake_path)
 

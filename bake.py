@@ -1977,7 +1977,7 @@ def test_unmodified_socket(shader_node, socket_name, default_value, linked_socke
                 if not linked_socket.is_linked:
                     return True
             socket_value = socket.default_value
-            if type(default_value) is list or type(default_value) is tuple:
+            if type(default_value) is list or type(default_value) is tuple or type(default_value) is bpy.types.bpy_prop_array:
                 for i in range(0, len(default_value)):
                     if abs(default_value[i] - socket_value[i]) > 0.001:
                         return False
@@ -2527,7 +2527,7 @@ def combine_diffuse_tex(nodes, source_mat, source_mat_cache, mat,
     alpha_data = None
     bsdf_node = nodeutils.get_bsdf_node(mat)
     base_color_socket = nodeutils.input_socket(bsdf_node, "Base Color")
-    diffuse_value = nodeutils.get_node_input_value(bsdf_node, base_color_socket, (1,1,1,1))
+    diffuse_value = nodeutils.get_node_input_color(bsdf_node, base_color_socket, (1,1,1,1))
 
     map_suffix = "BaseMap"
     path = get_bake_path()

@@ -576,6 +576,15 @@ def get_tongue_object(chr_cache):
     return None
 
 
+def get_teeth_object(chr_cache):
+    # TODO merged expressions and morphs....
+    if chr_cache:
+        teeth = chr_cache.get_objects_of_type("TEETH")
+        if teeth:
+            return teeth[0]
+    return None
+
+
 def get_head_body_object(chr_cache):
     if not chr_cache: return None
     body_cache = chr_cache.get_body_cache()

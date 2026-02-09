@@ -18,7 +18,7 @@ import bpy
 import math, os, random
 from . import facerig_data, lib, utils, vars
 from . import drivers, bones
-from . import rigutils
+from . import rigutils, meshutils
 from mathutils import Vector, Matrix, Quaternion
 
 
@@ -849,6 +849,7 @@ def build_facerig_drivers(chr_cache, rigify_rig):
 
     # first drive the shape keys on any other body objects from the head body object
     # expression rig will then override these
+    add_missing_expressions(chr_cache)
     drivers.add_body_shape_key_drivers(chr_cache, True)
 
     BONE_CLEAR_CONSTRAINTS = [
@@ -1775,6 +1776,50 @@ def toggle_lock_position(chr_cache, rig):
         if control_name+"_box" in rig.pose.bones:
             pose_bone = rig.pose.bones[control_name+"_box"]
             pose_bone.bone.hide_select = True
+
+
+def get_driven_expressions(chr_cache):
+    driven_expressions = []
+    for expression_cache in chr_cache.expression_set:
+        key_name = expression_cache.key_name
+        if key_name not in driven_expressions:
+            driven_expressions.append(key_name)
+    return driven_expressions
+
+
+def add_expression_to_mesh(mesh, expression):
+    if not mesh.data.shape_keys.key_blocks:
+        mesh.add
+
+
+def add_missing_expressions(chr_cache):
+    driven_expressions = get_driven_expressions(chr_cache)
+    head: bpy.types.Object = meshutils.get_head_body_object(chr_cache)
+    eye = meshutils.get_eye_object(chr_cache)
+    tongue = meshutils.get_tongue_object(chr_cache)
+    teeth = meshutils.get_teeth_object(chr_cache)
+    objects = chr_cache.get_cache_objects()
+    if head:
+        if eye is None:
+            eye = head
+        if tongue is None:
+            tongue = head
+        if teeth is None:
+            teeth = head
+        for expression in driven_expressions:
+            if not meshutils.objects_have_shape_key(objects, expression):
+                if expression.startswith("Tongue_"):
+                    utils.log_info(f"Adding missing expression: {expression} to {tongue.name}")
+                    tongue.shape_key_add(name=expression, from_mix=False)
+                elif "_Eyeball_" in expression:
+                    utils.log_info(f"Adding missing expression: {expression} to {eye.name}")
+                    eye.shape_key_add(name=expression, from_mix=False)
+                elif expression.startswith("Teeth_"):
+                    utils.log_info(f"Adding missing expression: {expression} to {teeth.name}")
+                    teeth.shape_key_add(name=expression, from_mix=False)
+                else:
+                    utils.log_info(f"Adding missing expression: {expression} to {head.name}")
+                    head.shape_key_add(name=expression, from_mix=False)
 
 
 def build_arkit_bone_constraints(chr_cache, rigify_rig, proxy_rig):

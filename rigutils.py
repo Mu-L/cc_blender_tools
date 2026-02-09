@@ -3918,6 +3918,7 @@ def get_shape_key_group_name(key_name):
         "Tongue": "Tongue_",
         "Eyelid": "Eyelid_",
         "Constraint": "C_",
+        "Eyeball": "Eyeball_",
     }
     for group_name, prefix in groups.items():
         if key_name.startswith(prefix):

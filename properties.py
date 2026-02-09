@@ -101,7 +101,7 @@ def adjust_world_brightness(self, context):
     nodes = context.scene.world.node_tree.nodes
     for node in nodes:
         if node.type == "BACKGROUND" and "(rl_background_node)" in node.name:
-            current_strength = node.inputs["Strength"].default_value
+            current_strength = nodeutils.extract_socket_value(node.inputs["Strength"].default_value, 1.0)
             if "rl_default_strength" not in node:
                 node["rl_default_strength"] = current_strength
             if "rl_last_strength" not in node:

@@ -1235,11 +1235,11 @@ def convert_to_rl_pbr(mat, mat_cache):
             emission_socket = nodeutils.input_socket(bsdf_node, "Emission")
             transmission_socket = nodeutils.input_socket(bsdf_node, "Transmission")
             emission_strength_socket = nodeutils.input_socket(bsdf_node, "Emission Strength")
-            clearcoat_value = clearcoat_socket.default_value
-            roughness_value = roughness_socket.default_value
-            metallic_value = metallic_socket.default_value
-            specular_value = specular_socket.default_value
-            alpha_value = alpha_socket.default_value
+            clearcoat_value = nodeutils.extract_socket_value(clearcoat_socket.default_value, 0.0)
+            roughness_value = nodeutils.extract_socket_value(roughness_socket.default_value, 1.0)
+            metallic_value = nodeutils.extract_socket_value(metallic_socket.default_value, 0.0)
+            specular_value = nodeutils.extract_socket_value(specular_socket.default_value, 0.5)
+            alpha_value = nodeutils.extract_socket_value(alpha_socket.default_value, 1.0)
 
             if gltf_node:
                 # bug in Blender 4.0 gltf occlusion is not connected from occlusion strength node
@@ -1256,10 +1256,10 @@ def convert_to_rl_pbr(mat, mat_cache):
                     emission_value = nodeutils.get_node_input_value(bsdf_node, emission_strength_socket, 1.0)
                 else:
                     emission_value = 0.0
-            emission_color = nodeutils.get_node_input_value(bsdf_node, emission_socket, (0,0,0))
+            emission_color = nodeutils.get_node_input_color(bsdf_node, emission_socket, (0,0,0,1))
 
             if not base_color_socket.is_linked:
-                diffuse_color = base_color_socket.default_value
+                diffuse_color = nodeutils.extract_socket_color(base_color_socket.default_value, (1,1,1,1))
                 mat_cache.parameters.default_diffuse_color = diffuse_color
 
             if transmission_socket.is_linked:

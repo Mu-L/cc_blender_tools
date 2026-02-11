@@ -695,7 +695,9 @@ class CCICActionOptions(bpy.types.PropertyGroup):
                         ("MATCH","Match","Import keyframes into Blender matching keyframes with CC/iClone \n*Note: +1 as Blender starts at frame 1*"),
                     ], default="START", name = "Import Frame Mode")
     use_masking: bpy.props.BoolProperty(default=False, name="Use Bone / Shape-Key Masking",
-                                     description="Only import the keyframes from the masked bones and shape-keys")
+                                        description="Only import the keyframes from the masked bones and shape-keys")
+    override_global: bpy.props.BoolProperty(default=False, name="Character Motion Override:",
+                                            description="Override the global action options for this character or prop")
     import_mix_bones: bpy.props.CollectionProperty(type=CCIC_UI_MixItem)
     rig_mix_bones_list_index: bpy.props.IntProperty(default=-1)
     import_mix_bones_list_index: bpy.props.IntProperty(default=-1)
@@ -704,8 +706,38 @@ class CCICActionOptions(bpy.types.PropertyGroup):
     # some masking presets ...
     # export / import presets ...
 
-    def test(self):
-        self.import_mix_bones
+    def get_action_mode(self):
+        props = vars.props()
+        action_mode = self.action_mode if self.override_global else props.action_options.action_mode
+        return action_mode
+
+    def get_frame_mode(self):
+        props = vars.props()
+        frame_mode = self.frame_mode if self.override_global else props.action_options.frame_mode
+        return frame_mode
+
+    def get_start_frame(self, ccic_start_frame, blender_current_frame):
+        frame_mode = self.get_frame_mode()
+        frame = 1
+        if frame_mode == "START":
+            frame = 1
+        elif frame_mode == "CURRENT":
+            frame = blender_current_frame
+        elif frame_mode == "MATCH":
+            frame = ccic_start_frame
+        return frame
+
+    def get_sequence_frame(self, ccic_frame, ccic_start_frame, blender_current_frame):
+        frame_mode = self.get_frame_mode()
+        frame = ccic_frame
+        if frame_mode == "START":
+            frame = ccic_frame - ccic_start_frame + 1
+        elif frame_mode == "CURRENT":
+            frame = blender_current_frame + ccic_frame - ccic_start_frame
+        elif frame_mode == "MATCH":
+            frame = ccic_frame
+        return frame
+
 # endregion
 
 # region HeadParameters

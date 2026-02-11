@@ -2596,7 +2596,7 @@ class CC3RigifyPanel(bpy.types.Panel):
 
                         layout.label(text="Import Options:")
                         row = layout.row(align=True)
-                        label = rigutils.CCICActionImportOptions.label(context, chr_cache)
+                        label = rigutils.CCICActionImportOptions.label(context)
                         row.operator("ccic.action_import_options", icon="COLLAPSEMENU", text=label)
                         column = layout.column()
                         motion_set_ui(column, chr_cache)
@@ -2786,7 +2786,7 @@ class CCICAnimationToolsPanel(bpy.types.Panel):
 
         layout.label(text="Import Options:")
         row = layout.row(align=True)
-        label = rigutils.CCICActionImportOptions.label(context, chr_cache)
+        label = rigutils.CCICActionImportOptions.label(context)
         row.operator("ccic.action_import_options", icon="COLLAPSEMENU", text=label)
 
         column = layout.column()

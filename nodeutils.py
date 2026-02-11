@@ -236,7 +236,7 @@ def safe_socket_name(socket_or_name):
         return None
 
 
-def get_node_input_color(node : bpy.types.Node, socket, default = None):
+def get_node_input_color(node : bpy.types.Node, socket, default: tuple) -> tuple:
     """Returns the node's socket or named input sockets default color value
        or if linked to, the connecting node's default output value.\n
        Returns the supplied default value if node/socket is invalid."""
@@ -249,10 +249,10 @@ def get_node_input_color(node : bpy.types.Node, socket, default = None):
                 return get_node_output_color(connecting_node, connecting_socket, default)
             return extract_socket_color(socket.default_value, default)
         except: ...
-    return extract_socket_color(default)
+    return default
 
 
-def get_node_input_vector(node : bpy.types.Node, socket, default = None):
+def get_node_input_vector(node : bpy.types.Node, socket, default: tuple) -> tuple:
     """Returns the node's socket or named input sockets default value
        or if linked to, the connecting node's default output value.\n
        Returns the supplied default value if node/socket is invalid."""
@@ -265,10 +265,10 @@ def get_node_input_vector(node : bpy.types.Node, socket, default = None):
                 return get_node_output_vector(connecting_node, connecting_socket, default)
             return extract_socket_vector(socket.default_value, default)
         except: ...
-    return extract_socket_vector(default)
+    return default
 
 
-def get_node_input_value(node : bpy.types.Node, socket, default = None):
+def get_node_input_value(node : bpy.types.Node, socket, default: float) -> float:
     """Returns the node's socket or named input sockets default value
        or if linked to, the connecting node's default output value.\n
        Returns the supplied default value if node/socket is invalid."""
@@ -281,10 +281,10 @@ def get_node_input_value(node : bpy.types.Node, socket, default = None):
                 return get_node_output_value(connecting_node, connecting_socket, default)
             return extract_socket_value(socket.default_value, default)
         except: ...
-    return extract_socket_value(default)
+    return default
 
 
-def get_node_output_color(node, socket, default):
+def get_node_output_color(node, socket, default: tuple) -> tuple:
     """Returns the node's socket or named output sockets default color value.\n
        Returns the supplied default value if node/socket is invalid."""
 
@@ -293,10 +293,10 @@ def get_node_output_color(node, socket, default):
         try:
             return extract_socket_color(socket.default_value, default)
         except: ...
-    return extract_socket_color(default)
+    return default
 
 
-def get_node_output_vector(node, socket, default):
+def get_node_output_vector(node, socket, default: tuple) -> tuple:
     """Returns the node's socket or named output sockets default value.\n
        Returns the supplied default value if node/socket is invalid."""
 
@@ -305,10 +305,10 @@ def get_node_output_vector(node, socket, default):
         try:
             return extract_socket_vector(socket.default_value, default)
         except: ...
-    return extract_socket_vector(default)
+    return default
 
 
-def get_node_output_value(node, socket, default):
+def get_node_output_value(node, socket, default: float) -> float:
     """Returns the node's socket or named output sockets default value.\n
        Returns the supplied default value if node/socket is invalid."""
 
@@ -317,10 +317,10 @@ def get_node_output_value(node, socket, default):
         try:
             return extract_socket_value(socket.default_value, default)
         except: ...
-    return extract_socket_value(default)
+    return default
 
 
-def set_node_input_value(node, socket, value):
+def set_node_input_value(node, socket, value: any):
     """Sets the node's socket or named input socket's default value.\n
        If the socket's value is multidimensional the value will be set in each dimension."""
 
@@ -332,7 +332,7 @@ def set_node_input_value(node, socket, value):
             utils.log_detail("Unable to set input: " + node.name + "[" + str(socket) + "]")
 
 
-def set_node_output_value(node, socket, value):
+def set_node_output_value(node, socket, value: any):
     """Sets the node's socket or named output socket's default value.\n
        If the socket's value is multidimensional the value will be set in each dimension."""
 
@@ -1059,7 +1059,7 @@ def trace_input_sockets(node, socket_trace : str):
     return trace_node, trace_socket
 
 
-def trace_input_value(node, socket_trace, default_value):
+def trace_input_value(node: bpy.types.Node, socket_trace: str, default_value: float) -> float:
     if node and socket_trace:
         socket_names = socket_trace.split(":")
         trace_node = None
@@ -1067,7 +1067,7 @@ def trace_input_value(node, socket_trace, default_value):
         try:
             value_socket_name = socket_names[-1]
             socket_names = socket_names[:-1]
-            trace_node : bpy.types.Node = node
+            trace_node: bpy.types.Node = node
             if socket_names:
                 for socket_name in socket_names:
                     socket = input_socket(trace_node, socket_name)
@@ -1087,64 +1087,65 @@ def trace_input_value(node, socket_trace, default_value):
     return default_value
 
 
-def extract_socket_value(value, default_value=None):
+def extract_socket_value(value, default_value: float) -> float:
     try:
         if value is None:
             return default_value
         T = type(value)
         if T is float:
             return value
-        if (T is bpy.types.bpy_prop_array or T is list or T is tuple) and len(value) > 0:
-            tot = 0
-            rgb = value[:3]
-            for v in rgb:
-                tot += v
-            if len(value) == 4:
-                tot *= value[3]
-            return tot / len(rgb)
-        return float(value)
+        elif (T is bpy.types.bpy_prop_array or T is list or T is tuple):
+            L = len(value)
+            if L == 4: # RGBA color, return alpha multipled average
+                return utils.lum(value)
+            else: # vector, return magnitude
+                return utils.mag(value)
+        else:
+            return float(value)
     except Exception as e:
         utils.log_error(f"Extract Socket Value: {value}", e)
-        return default_value
+    return default_value
 
 
-def extract_socket_vector(value, default_value=None):
+def extract_socket_vector(value, default_value: tuple) -> tuple:
     try:
         if value is None:
             return default_value
         T = type(value)
         if T is float:
             return (value, value, value)
-        if (T is bpy.types.bpy_prop_array or T is list or T is tuple):
+        elif (T is bpy.types.bpy_prop_array or T is list or T is tuple):
             xyz = value[:3]
             if len(xyz) < 3:
                 xyz += [0]*(3 - len(xyz))
             return tuple(xyz)
-        v = float(value)
-        return (v, v, v)
+        else:
+            v = float(value)
+            return (v, v, v)
     except Exception as e:
         utils.log_error(f"Extract Socket Vector: {value}", e)
-        return default_value
+    return default_value
 
 
-def extract_socket_color(value, default_value=None):
+def extract_socket_color(value, default_value: tuple) -> tuple:
     try:
         if value is None:
             return default_value
         T = type(value)
         if T is float:
             return (value, value, value, 1.0)
-        if (T is bpy.types.bpy_prop_array or T is list or T is tuple):
+        elif (T is bpy.types.bpy_prop_array or T is list or T is tuple):
             rgba = value[:4]
             if len(rgba) < 4:
                 rgba += [0]*(4 - len(rgba))
                 rgba[3] = 1.0
             return tuple(rgba)
-        v = float(value)
-        return (v, v, v, 1.0)
+        else:
+            v = float(value)
+            return (v, v, v, 1.0)
     except Exception as e:
         utils.log_error(f"Extract Socket Color: {value}", e)
-        return default_value
+    return default_value
 
 
 def set_trace_input_value(node, socket_trace, value):

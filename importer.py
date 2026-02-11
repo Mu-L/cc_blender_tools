@@ -307,8 +307,6 @@ def detect_generation(chr_cache, rig, json_data, character_id):
         avatar_type = jsonutils.get_json(json_data, f"{character_id}/Avatar_Type")
         json_generation = jsonutils.get_character_generation_json(json_data, chr_cache.get_character_id())
 
-        print(avatar_type)
-        print(json_generation)
         if json_generation and json_generation in vars.CHARACTER_GENERATION:
             generation = vars.CHARACTER_GENERATION[json_generation]
         elif avatar_type == "NonHuman":
@@ -915,53 +913,53 @@ class CC3Import(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     filepath: bpy.props.StringProperty(
-        name="Filepath",
-        description="Filepath of the model to import.",
-        subtype="FILE_PATH"
+        name = "Filepath",
+        description = "Filepath of the model to import.",
+        subtype = "FILE_PATH"
         )
 
     directory: bpy.props.StringProperty(subtype='DIR_PATH')
 
     files: bpy.props.CollectionProperty(
-            type=bpy.types.OperatorFileListElement,
-            options={'HIDDEN', 'SKIP_SAVE'}
+            type = bpy.types.OperatorFileListElement,
+            options = {'HIDDEN', 'SKIP_SAVE'}
     )
 
     link_id: bpy.props.StringProperty(
-        default="",
-        name="Link ID",
-        description="Link ID override",
-        options={"HIDDEN"},
+        default = "",
+        name = "Link ID",
+        description = "Link ID override",
+        options = {"HIDDEN"},
     )
 
     process_only: bpy.props.StringProperty(
-        default="",
-        options={"HIDDEN"},
+        default = "",
+        options = {"HIDDEN"},
     )
 
     no_build: bpy.props.BoolProperty(
-        default=False,
-        name="No Build",
-        description="Don't build materials",
-        options={"HIDDEN"},
+        default = False,
+        name = "No Build",
+        description = "Don't build materials",
+        options = {"HIDDEN"},
     )
 
     no_rigify: bpy.props.BoolProperty(
-        default=False,
-        name="Don't Rigify",
-        description="Don't Rigify Character",
-        options={"HIDDEN"},
+        default = False,
+        name = "Don't Rigify",
+        description = "Don't Rigify Character",
+        options = {"HIDDEN"},
     )
 
     filter_glob: bpy.props.StringProperty(
-        default="*.fbx;*.obj;*.glb;*.gltf;*.vrm;*.usd*",
-        options={"HIDDEN"},
+        default = "*.fbx;*.obj;*.glb;*.gltf;*.vrm;*.usd*",
+        options = {"HIDDEN"},
         )
 
     param: bpy.props.StringProperty(
             name = "param",
             default = "",
-            options={"HIDDEN"}
+            options = {"HIDDEN"}
         )
 
     motion_prefix: bpy.props.StringProperty(
@@ -974,12 +972,16 @@ class CC3Import(bpy.types.Operator):
         default = True
     )
 
-    use_anim: bpy.props.BoolProperty(name = "Import Animation", description = "Import animation with character.\nWarning: long animations take a very long time to import in Blender 2.83", default = True)
+    start_frame: bpy.props.IntProperty(name = "Start Frame", default = 1)
+
+    use_anim: bpy.props.BoolProperty(name = "Import Animation",
+                                     description = "Import animation with character.\nWarning: long animations take a very long time to import in Blender 2.83",
+                                     default = True)
 
     zoom: bpy.props.BoolProperty(
-        default=False,
-        name="Zoom View",
-        description="Zoom view to imported character",
+        default = False,
+        name = "Zoom View",
+        description = "Zoom view to imported character",
     )
 
     count = 0
@@ -1073,12 +1075,22 @@ class CC3Import(bpy.types.Operator):
                 # But the mesh is really all we need, so just keep going...
                 if colorspace.is_aces():
                     try:
-                        bpy.ops.import_scene.fbx(filepath=filepath, directory=dir, use_anim=import_anim, use_image_search=False, use_custom_normals=True)
+                        bpy.ops.import_scene.fbx(filepath=filepath,
+                                                 directory=dir,
+                                                 use_anim=import_anim,
+                                                 use_image_search=False,
+                                                 use_custom_normals=True,
+                                                 anim_offset=self.start_frame)
                     except:
                         utils.log_warn("FBX Import Error: This may be due to color space differences. Continuing...")
                 else:
                     try:
-                        bpy.ops.import_scene.fbx(filepath=filepath, directory=dir, use_anim=import_anim, use_image_search=False, use_custom_normals=True)
+                        bpy.ops.import_scene.fbx(filepath=filepath,
+                                                 directory=dir,
+                                                 use_anim=import_anim,
+                                                 use_image_search=False,
+                                                 use_custom_normals=True,
+                                                 anim_offset=self.start_frame)
                     except:
                         utils.log_error("FBX Import Error due to bad mesh?")
 
@@ -1382,7 +1394,6 @@ class CC3Import(bpy.types.Operator):
             chr_cache.check_ids()
 
             rig = chr_cache.get_armature()
-            print(chr_cache.cache_type())
 
             if chr_cache.cache_type() != "AVATAR": continue
 
@@ -1910,20 +1921,20 @@ class CC3ImportAnimations(bpy.types.Operator):
 
     remove_meshes: bpy.props.BoolProperty(
         default = True,
-        description="Remove all imported mesh objects.",
-        name="Remove Meshes",
+        description = "Remove all imported mesh objects.",
+        name = "Remove Meshes",
     )
 
     remove_materials_images: bpy.props.BoolProperty(
         default = True,
-        description="Remove all imported materials and image textures.",
-        name="Remove Materials & Images",
+        description = "Remove all imported materials and image textures.",
+        name = "Remove Materials & Images",
     )
 
     remove_shape_keys: bpy.props.BoolProperty(
         default = False,
-        description="Remove Shapekey actions along with their meshes.",
-        name="Remove Shapekey Actions",
+        description = "Remove Shapekey actions along with their meshes.",
+        name = "Remove Shapekey Actions",
     )
 
     param: bpy.props.StringProperty(
@@ -1942,6 +1953,8 @@ class CC3ImportAnimations(bpy.types.Operator):
         default = True
     )
 
+    start_frame: bpy.props.IntProperty(name="Start Frame", default=1)
+
     def import_animation_fbx(self, dir, file):
         prefs = vars.prefs()
 
@@ -1955,7 +1968,13 @@ class CC3ImportAnimations(bpy.types.Operator):
         old_images = utils.get_set(bpy.data.images)
         old_actions = utils.get_set(bpy.data.actions)
         old_materials = utils.get_set(bpy.data.materials)
-        bpy.ops.import_scene.fbx(filepath=path, directory=dir, use_anim=True, use_image_search=False)
+
+        bpy.ops.import_scene.fbx(filepath=path,
+                                 directory=dir,
+                                 use_anim=True,
+                                 use_image_search=False,
+                                 anim_offset=self.start_frame)
+
         objects = utils.get_set_new(bpy.data.objects, old_objects)
         actions = utils.get_set_new(bpy.data.actions, old_actions)
         images = utils.get_set_new(bpy.data.images, old_images)

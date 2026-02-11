@@ -802,17 +802,14 @@ def add_body_shape_key_drivers(chr_cache, add_drivers, only_objects=None):
     if utils.object_has_shape_keys(eye):
         for key in eye.data.shape_keys.key_blocks:
             if key.name.startswith("Eye_Pupil_"):
-                print(f"EYE: {key.name}")
                 key_sources[key.name] = eye
     if utils.object_has_shape_keys(tongue):
         for key in tongue.data.shape_keys.key_blocks:
             if key.name.startswith("V_Tongue_") or key.name.startswith("Tongue_"):
-                print(f"TONGUE: {key.name}")
                 key_sources[key.name] = tongue
     if utils.object_has_shape_keys(body):
         for key in body.data.shape_keys.key_blocks:
             if key.name not in key_sources:
-                print(f"BODY: {key.name}")
                 key_sources[key.name] = body
 
     for obj in chr_cache.get_cache_objects():

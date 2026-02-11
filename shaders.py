@@ -1477,12 +1477,12 @@ def check_tex_count(links, shader_node, wrinkle_shader_node, max_images=32):
             nodeutils.unlink_node_input(links, shader_node, "Specular Map")
             active_tex_count -= 1
     if active_tex_count > max_images:
-        nbs = nodeutils.get_node_input_value(shader_node, "Normal Blend Strength")
+        nbs = nodeutils.get_node_input_value(shader_node, "Normal Blend Strength", 0.0)
         if nbs < 0.01 and nodeutils.has_connected_input(shader_node, "Normal Blend Map"):
             nodeutils.unlink_node_input(links, shader_node, "Normal Blend Map")
             active_tex_count -= 1
     if active_tex_count > max_images:
-        cbs = nodeutils.get_node_input_value(shader_node, "Blend Overlay Strength")
+        cbs = nodeutils.get_node_input_value(shader_node, "Blend Overlay Strength", 0.0)
         if cbs < 0.01 and nodeutils.has_connected_input(shader_node, "Blender Overlay"):
             nodeutils.unlink_node_input(links, shader_node, "Blender Overlay")
             active_tex_count -= 1

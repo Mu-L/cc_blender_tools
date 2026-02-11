@@ -714,6 +714,21 @@ def dimensions(x):
     return 1
 
 
+def mag(vector: tuple):
+    tot = 0
+    for v in vector:
+        tot += v*v
+    return pow(tot, 0.5)
+
+
+def lum(col: tuple):
+    rgb: list = col[:3]
+    while len(rgb) < 3:
+        rgb.append(0)
+    a = 1.0 if len(col) < 4 else col[3]
+    return (0.2126*rgb[0] + 0.7152*rgb[1] + 0.0722*rgb[2]) * a
+
+
 def match_dimensions(socket, value):
     socket_dimensions = dimensions(socket)
     value_dimensions = dimensions(value)

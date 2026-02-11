@@ -3070,25 +3070,27 @@ class CCICActionImportOptions(bpy.types.Operator):
     def label(cls, context, chr_cache=None):
         props = vars.props()
         if not chr_cache:
-            chr_cache = props.get_context_character_cache(context)
+            chr_cache = props.get_context_character_cache(context, strict=True)
+            if not chr_cache:
+                opts = props.action_options
         if chr_cache and chr_cache.action_options:
-            props = chr_cache.action_options
-            action_text = {
-                "NEW": "Add",
-                "REPLACE": "Repl",
-                "MIX": "Mix",
-            }
-            frame_text = {
-                "START": "Start",
-                "CURRENT": "Curr",
-                "MATCH": "Match",
-            }
-            mask_text = " (Mask)" if props.use_masking else ""
-            return f"{action_text[props.action_mode]} > {frame_text[props.frame_mode]}{mask_text}"
-        return "Import Options"
+            opts = chr_cache.action_options
+        action_text = {
+            "NEW": "Add",
+            "REPLACE": "Repl",
+            "MIX": "Mix",
+        }
+        frame_text = {
+            "START": "Start",
+            "CURRENT": "Curr",
+            "MATCH": "Match",
+        }
+        mask_text = " (Mask)" if opts.use_masking else ""
+        return f"{action_text[opts.get_action_mode()]} > {frame_text[opts.get_frame_mode()]}{mask_text}"
 
     def draw(self, context):
         prefs = vars.prefs()
+        props = vars.props()
         layout = self.layout
         column = layout.column()
 
@@ -3101,24 +3103,37 @@ class CCICActionImportOptions(bpy.types.Operator):
         #grid.prop(prefs, "action_clean_actions")
         grid.prop(prefs, "action_add_empty_key_channels")
 
+        if True:
+            opts = props.action_options
+            column.separator()
+            column.row().label(text="Global Motion Options:")
+            #column.row().prop(opts, "action_mode")
+            column.row().prop(opts, "frame_mode")
+
         if self.chr_cache and self.chr_cache.action_options:
             arm = self.chr_cache.get_armature()
-            props = self.chr_cache.action_options
+            opts = self.chr_cache.action_options
 
             column.separator()
 
-            column.row().prop(props, "action_mode")
+            row = column.row()
+            row.prop(opts, "override_global")
+            row.label(text=f"{self.chr_cache.character_name}")
+            column = column.column()
+            column.enabled = opts.override_global
+            #column.row().prop(props, "action_mode")
+            column.row().prop(opts, "frame_mode")
+
             return
-            column.row().prop(props, "frame_mode")
 
             column.separator()
 
-            column.row().prop(props, "use_masking")
-            if props.use_masking:
+            column.row().prop(opts, "use_masking")
+            if opts.use_masking:
                 row = column.row()
                 row.template_list("CCIC_RigMixBones_UL_List", "rig_mix_bones_list",
                                         arm.data, "bones",
-                                        props, "rig_mix_bones_list_index",
+                                        opts, "rig_mix_bones_list_index",
                                         rows=8, maxrows=8)
                 col = row.column()
                 col.separator(factor=4.0)
@@ -3127,8 +3142,8 @@ class CCICActionImportOptions(bpy.types.Operator):
                 col.operator("ccic.action_import_functions", text="", icon="PLAY_REVERSE").param = "REMOVE_BONE"
                 col.separator(factor=4.0)
                 row.template_list("CCIC_ImportMixBones_UL_List", "import_mix_bones_list",
-                                        props, "import_mix_bones",
-                                        props, "import_mix_bones_list_index",
+                                        opts, "import_mix_bones",
+                                        opts, "import_mix_bones_list_index",
                                         rows=8, maxrows=8)
 
 
@@ -3142,7 +3157,7 @@ class CCICActionImportOptions(bpy.types.Operator):
         props = vars.props()
         prefs = vars.prefs()
         utils.set_mode("OBJECT")
-        self.chr_cache = props.get_context_character_cache(context)
+        self.chr_cache = props.get_context_character_cache(context, strict=True)
         return context.window_manager.invoke_props_dialog(self, width=500)
 
     @classmethod
@@ -3250,6 +3265,7 @@ def fetch_action_curve_database(source_action):
         if a not in all_actions:
             all_actions.append(a)
     database["curves"] = data_curves
+    first_frame = None
     if utils.B440():
         all_actions = arm_actions + key_actions
         for a in all_actions:
@@ -3272,6 +3288,10 @@ def fetch_action_curve_database(source_action):
                     id = (data_path, index)
                     if id not in slot_curves or is_source_channel:
                         slot_curves[id] = fcurve
+                    if fcurve.keyframe_points and len(fcurve.keyframe_points) > 0:
+                        frame = fcurve.keyframe_points[0].co.x
+                        if not first_frame or frame < first_frame:
+                            first_frame = frame
     else:
         all_actions = []
         for arm_action in arm_actions:
@@ -3290,6 +3310,11 @@ def fetch_action_curve_database(source_action):
                 id = (data_path, index)
                 if id not in slot_curves:
                     slot_curves[id] = fcurve
+                if fcurve.keyframe_points and len(fcurve.keyframe_points) > 0:
+                    frame = fcurve.keyframe_points[0].co.x
+                    if not first_frame or frame < first_frame:
+                        first_frame = frame
+    database["first_frame"] = first_frame
     return database
 
 
@@ -3345,6 +3370,7 @@ def load_slotted_action(rig, action: bpy.types.Action, move=False, temp=None):
     keep_slots = []
     keep_channels = []
     data_curves = database["curves"]
+    first_frame = database["first_frame"]
 
     # ARMATURE ACTION
     #
@@ -3502,7 +3528,7 @@ def load_slotted_action(rig, action: bpy.types.Action, move=False, temp=None):
                                 # add a zero single keyframe track
                                 fcurve = key_channel.fcurves.new(data_path)
                                 fcurve.keyframe_points.add(1)
-                                fcurve.keyframe_points.foreach_set('co', [1.0, 0.0])
+                                fcurve.keyframe_points.foreach_set('co', [first_frame, 0.0])
 
                                 # add fcurve to expression group
                                 group_name = get_shape_key_group_name(key.name)
@@ -3609,6 +3635,7 @@ def load_separate_actions(rig: bpy.types.Object, action: bpy.types.Action, move=
     keep_actions = []
     remove_actions = []
     data_curves = database["curves"]
+    first_frame = database["first_frame"]
 
     # ARMATURE ACTION
     #
@@ -3829,7 +3856,7 @@ def load_separate_actions(rig: bpy.types.Object, action: bpy.types.Action, move=
                                 # add a zero single keyframe track
                                 fcurve = key_channel.fcurves.new(data_path)
                                 fcurve.keyframe_points.add(1)
-                                fcurve.keyframe_points.foreach_set('co', [1.0, 0.0])
+                                fcurve.keyframe_points.foreach_set('co', [first_frame, 0.0])
 
                                 # add fcurve to expression group
                                 group_name = get_shape_key_group_name(key.name)

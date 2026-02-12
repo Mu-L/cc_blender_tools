@@ -40,12 +40,22 @@ Links
     - Depending on action options, motions will refactor into Single action or multiple actions for each object.
     - Refactoring will also strip key-frames from bones and keys that have drivers.
     - Unused bones and shape-key tracks will be placed into unassigned slots or actions.
+    - Motion imports set the preview range.
 - Add empty keyframes for non-animated shape keys (optional).
 - Clean empty shape-keys and vertex groups on import (optional).
+- Motion, Pose and Sequence import options:
+    - New - add new motion for the character.
+    - Replace - replace existing motion.
+    - Blend - Overwrite keyframes of existing animation with the imported motion.
+- Rig drivers add missing expression blendshapes.
+- FaceRig collection uses Rigify Face collection.
+    - Can be enabled / disabled with the Rigify UI controls.
+- Standard eyelash disabled when HD Eyelash detected.
 - Fix to Facerig following root position.
 - Fix to shape key export baking.
 - Fix to bad vertex weights when skinning the rigify face rig on SubD 1/2 characters.
 - Fix to material merge (InstaLod) character detection.
+- Fix to baking node socket strength values from Color/Vector inputs.
 
 ### 2.3.4
 - Add / apply physics resets physics to frame 1.

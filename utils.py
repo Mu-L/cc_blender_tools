@@ -2086,11 +2086,17 @@ def get_action_slot(action, slot_type):
     return None
 
 
-def find_action_slot(action, slot_type=None, slot_name=None):
+def find_action_slot(action, slot_type=None, slot_name=None, slot_id=None):
     if B440():
         for slot in action.slots:
-            if slot_type and slot_name:
+            if slot_type and slot_id:
+                if slot.target_id_type == slot_type and slot.identifier == slot_id:
+                    return slot
+            elif slot_type and slot_name:
                 if slot.target_id_type == slot_type and slot.name_display == slot_name:
+                    return slot
+            elif slot_id:
+                if slot.identifier == slot_id:
                     return slot
             elif slot_name:
                 if slot.name_display == slot_name:
@@ -2125,8 +2131,8 @@ def set_action_slot(obj, action, slot=None):
         if slot:
             try:
                 obj.animation_data.action_slot = slot
-            except:
-                log_error(f"Unable to set action slot {action} / {slot}")
+            except Exception as e:
+                log_error(f"Unable to set action slot {action} / {slot}", e)
             return True
         else:
             slot_type = get_slot_type_for(obj)
@@ -2179,7 +2185,7 @@ def safe_set_action(obj, action, create=True, slot=None):
     return result
 
 
-def clear_action(action, slot_type=None, slot_name=None):
+def clear_action(action):
     if action:
         try:
             if B440():
@@ -2189,11 +2195,8 @@ def clear_action(action, slot_type=None, slot_name=None):
                             channelbag.fcurves.clear()
                 while action.slots:
                     action.slots.remove(action.slots[0])
-            if not B500():
+            else:
                 action.fcurves.clear()
-            if B440():
-                if slot_type and slot_name:
-                    action.slots.new(slot_type, slot_name)
             return True
         except:
             log_error(f"Unable to clear action: {action}")
@@ -2266,7 +2269,7 @@ def get_action_channelbag(action: bpy.types.Action, slot=None, slot_type=None):
             strip = layer.strips.new(type='KEYFRAME')
         else:
             strip = layer.strips[0]
-        if not slot and slot_type:
+        if slot_type and not slot:
             slot = get_action_slot(action, slot_type)
         if slot:
             channelbag = strip.channelbag(slot, ensure=True)
@@ -2286,6 +2289,15 @@ def get_object_action_channelbag(obj):
         if channel.slot == slot:
             return channel
     return None
+
+
+def get_action_target(obj):
+    target = None
+    if object_exists_is_armature(obj):
+        target = obj
+    elif object_exists_is_mesh(obj):
+        target = obj.data.shape_keys
+    return target
 
 
 def index_in_collection(item, collection):

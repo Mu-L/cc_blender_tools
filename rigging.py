@@ -3777,6 +3777,7 @@ def bake_shape_key_animation(rig, objects):
                     fcurve: bpy.types.FCurve = channelbag.fcurves.new(data_path)
                     fcurve.keyframe_points.add(num_frames)
                     fcurve.keyframe_points.foreach_set("co", cache_data)
+                    rigutils.reset_fcurve_interpolation(fcurve)
             else:
                 key_action = bpy.data.actions.new("Key")
                 slot, channelbag = rigutils.add_action_key_slot_channelbag(key_action, obj, reuse=True, clear=True)
@@ -3787,6 +3788,7 @@ def bake_shape_key_animation(rig, objects):
                     fcurve: bpy.types.FCurve = channelbag.fcurves.new(data_path)
                     fcurve.keyframe_points.add(num_frames)
                     fcurve.keyframe_points.foreach_set("co", cache_data)
+                    rigutils.reset_fcurve_interpolation(fcurve)
                 shape_key_actions[rigutils.get_obj_id(obj)] = key_action
 
     return shape_key_actions

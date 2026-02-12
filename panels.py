@@ -2702,7 +2702,7 @@ def motion_set_ui(layout: bpy.types.UILayout, chr_cache, show_nla=False):
     split.column().label(text="Motion Sets:")
     split.column().prop(props, "filter_motion_set")
 
-    col.template_list("ACTION_SET_UL_List", "action_set_list", bpy.data, "actions", props, "action_set_list_index", rows=1, maxrows=5)
+    col.template_list("ACTION_SET_UL_List", "action_set_list", bpy.data, "actions", props, "action_set_list_index", rows=5, maxrows=5)
 
     row = col.row(align=True)
     row.operator("ccic.motion_set_rename", icon="GREASEPENCIL", text="Rename")

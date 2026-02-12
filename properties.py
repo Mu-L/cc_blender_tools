@@ -635,18 +635,11 @@ class CCICActionStore(bpy.types.PropertyGroup):
     store_id: bpy.props.StringProperty(default="")
     object: bpy.props.PointerProperty(type=bpy.types.Object)
     action: bpy.props.PointerProperty(type=bpy.types.Action)
+    slot_id: bpy.props.StringProperty(default="")
     slot_name: bpy.props.StringProperty(default="")
 
-    def get_target(self, obj):
-        target = None
-        if utils.object_exists_is_armature(obj):
-            target = obj
-        elif utils.object_exists_is_mesh(obj):
-            target = obj.data.shape_keys
-        return target
-
     def store(self, obj, store_id: str):
-        target = self.get_target(obj)
+        target = utils.get_action_target(obj)
         if target:
             action, slot = utils.safe_get_action_slot(target)
             if action:
@@ -654,11 +647,12 @@ class CCICActionStore(bpy.types.PropertyGroup):
                 self.object = obj
                 self.action = action
                 self.slot_name = slot.name_display if slot else ""
+                self.slot_id = slot.identifier if slot else ""
 
     def restore(self):
-        target = self.get_target(self.object)
+        target = utils.get_action_target(self.object)
         if target:
-            slot = utils.find_action_slot(self.action, self.slot_name)
+            slot = utils.find_action_slot(self.action, slot_name=self.slot_name, slot_id=self.slot_id)
             utils.safe_set_action(target, self.action, slot=slot)
 
 
@@ -685,15 +679,15 @@ class CCIC_UI_MixList(bpy.types.PropertyGroup):
 
 class CCICActionOptions(bpy.types.PropertyGroup):
     action_mode: bpy.props.EnumProperty(items=[
-                        ("NEW","Add New","Import actions as a new set of actions and keep the existing actions"),
+                        ("NEW","New","Import actions as a new set of actions and keep the existing actions"),
                         ("REPLACE","Replace","Import new actions to replace the existing actions"),
-                        ("MIX","Mix","Import the new actions into the existing actions keeping the keyframes not overwritten by the import"),
+                        ("BLEND","Blend","Import the new actions into the existing actions keeping the keyframes not overwritten by the import"),
                     ], default="NEW", name = "Import Action Mode")
     frame_mode: bpy.props.EnumProperty(items=[
                         ("START","Start","Import keyframes into Blender starting at the start frame"),
                         ("CURRENT","Current","Import keyframes into Blender starting at the current frame"),
                         ("MATCH","Match","Import keyframes into Blender matching keyframes with CC/iClone \n*Note: +1 as Blender starts at frame 1*"),
-                    ], default="START", name = "Import Frame Mode")
+                    ], default="MATCH", name = "Import Frame Mode")
     use_masking: bpy.props.BoolProperty(default=False, name="Use Bone / Shape-Key Masking",
                                         description="Only import the keyframes from the masked bones and shape-keys")
     override_global: bpy.props.BoolProperty(default=False, name="Character Motion Override:",
@@ -3437,6 +3431,14 @@ class CC3ImportProps(bpy.types.PropertyGroup):
                     restored = True
         return restored
 
+    def fetch_stored_rig_action(self, store_id):
+        action_store: CCICActionStore
+        for action_store in self.action_options.action_store:
+            if action_store.store_id == store_id:
+                if utils.object_exists_is_armature(action_store.object):
+                    return action_store.action
+        return None
+
     def fetch_stored_actions(self, store_id: str):
         """This returns a list of the action store Property Collection items directly"""
         stored_actions = []
@@ -3453,6 +3455,15 @@ class CC3ImportProps(bpy.types.PropertyGroup):
                 action_store: CCICActionStore = self.action_options.action_store[i]
                 if action_store.store_id == store_id:
                     self.action_options.action_store.remove(i)
+
+    def get_action_store_for(self, store_id: str, obj):
+        action_store: CCICActionStore
+        if store_id:
+            for action_store in self.action_options.action_store:
+                if action_store.store_id == store_id:
+                    if action_store.object == obj:
+                        return action_store
+        return None
 
     def restore_ui_list_indices(self):
         """Restore the indices from the stored objects, because adding new objects will cause the indices to become invalid."""

@@ -222,7 +222,7 @@ def get_armature_action_source_type(armature, action=None):
 
 
 def find_source_actions(source_action, source_rig=None):
-    src_set_id, src_set_gen, src_type_id, src_object_id = get_motion_set(source_action)
+    src_set_id, src_set_gen, src_type_id, src_object_id = get_motion_set_ids(source_action)
     src_prefix = get_motion_prefix(source_action)
     src_prefix, src_rig_id, src_type_id, src_object_id, src_motion_id = decode_action_name(source_action)
     if not src_motion_id:
@@ -247,7 +247,7 @@ def find_source_actions(source_action, source_rig=None):
         utils.log_info(f"Looking for motion set id: {src_set_id}")
         for action in bpy.data.actions:
             if "rl_set_id" in action:
-                set_id, set_gen, type_id, object_id = get_motion_set(action)
+                set_id, set_gen, type_id, object_id = get_motion_set_ids(action)
                 unused = utils.get_prop(action, "rl_unused_action", False)
                 if set_id == src_set_id:
                     if type_id == "KEY":
@@ -642,12 +642,57 @@ def generate_motion_set(rig, motion_id, motion_prefix):
     return rl_set_id, rl_set_generation
 
 
-def get_motion_set(action):
+def get_motion_set_ids(action):
     set_id = utils.get_prop(action, "rl_set_id", None)
     set_generation = utils.get_prop(action, "rl_set_generation", None)
     action_type_id = utils.get_prop(action, "rl_action_type", None)
     key_object = utils.get_prop(action, "rl_key_object", None)
     return set_id, set_generation, action_type_id, key_object
+
+
+def get_motion_set_actions(action_or_set_id):
+    actions = []
+    if type(action_or_set_id) is bpy.types.Action:
+        set_id = utils.get_prop(action_or_set_id, "rl_set_id", None)
+    else:
+        set_id = action_or_set_id
+    if set_id:
+        for action in bpy.data.actions:
+            if utils.get_prop(action, "rl_set_id") == set_id:
+                actions.append(action)
+    return actions
+
+
+def get_motion_set_frame_range(action_or_set_id):
+    actions = get_motion_set_actions(action_or_set_id)
+    frame_start = None
+    frame_end = None
+    action: bpy.types.Action = None
+    for action in actions:
+        start = action.frame_range[0]
+        end = action.frame_range[1]
+        if frame_start is None:
+            frame_start = start
+            frame_end = end
+        if start < frame_start:
+            frame_start = start
+        if end > frame_end:
+            frame_end = end
+    return frame_start, frame_end
+
+
+def replace_motion_set(set_id, old_set_id):
+    actions = get_motion_set_actions(set_id)
+    old_actions = get_motion_set_actions(old_set_id)
+    temp_id = generate_set_id()
+    name = old_actions[0].name if len(old_actions) == 1 else None
+    for action in actions:
+        if name:
+            utils.force_action_name(action, name)
+        utils.set_prop(action, "rl_set_id", old_set_id)
+    for action in old_actions:
+        utils.set_prop(action, "rl_set_id", temp_id)
+    delete_motion_set(temp_id)
 
 
 def add_motion_set_data(action, set_id, set_generation, obj_id=None, arm_id=None, slotted=False):
@@ -1135,10 +1180,13 @@ def set_action_set_fake_user(action, use_fake_user):
     utils.update_ui(all=True)
 
 
-def delete_motion_set(action):
-    set_id = utils.get_prop(action, "rl_set_id")
+def delete_motion_set(action_or_set_id):
+    if type(action_or_set_id) is bpy.types.Action:
+        set_id = utils.get_prop(action_or_set_id, "rl_set_id")
+    else:
+        set_id = action_or_set_id
+    to_remove = []
     if set_id:
-        to_remove = []
         for action in bpy.data.actions:
             action_set_id = utils.get_prop(action, "rl_set_id")
             if action_set_id == set_id:
@@ -2505,7 +2553,7 @@ class CCICMotionSetRename(bpy.types.Operator):
         for action in bpy.data.actions:
             if "rl_set_id" in action:
                 if action["rl_set_id"] == self.set_id:
-                    set_id, set_generation, action_type_id, obj_id = get_motion_set(action)
+                    set_id, set_generation, action_type_id, obj_id = get_motion_set_ids(action)
                     if action_type_id == "ARM":
                         name = make_armature_action_name(rig_id, motion_id, prefix)
                         print(f"arm name: {name}")
@@ -2532,7 +2580,7 @@ class CCICMotionSetRename(bpy.types.Operator):
         if not action:
             return {"FINISHED"}
 
-        set_id, set_generation, action_type_id, key_object = get_motion_set(action)
+        set_id, set_generation, action_type_id, key_object = get_motion_set_ids(action)
         self.action_type = action_type_id
 
         if not set_id:
@@ -2620,7 +2668,7 @@ class CCICMotionSetInfo(bpy.types.Operator):
         if not action:
             return {"FINISHED"}
 
-        set_id, set_generation, action_type_id, key_object = get_motion_set(action)
+        set_id, set_generation, action_type_id, key_object = get_motion_set_ids(action)
 
         if not set_id:
             return {"FINISHED"}
@@ -3076,17 +3124,17 @@ class CCICActionImportOptions(bpy.types.Operator):
         if chr_cache and chr_cache.action_options:
             opts = chr_cache.action_options
         action_text = {
-            "NEW": "Add",
-            "REPLACE": "Repl",
-            "MIX": "Mix",
+            "NEW": "New",
+            "REPLACE": "Replace",
+            "BLEND": "Blend",
         }
         frame_text = {
             "START": "Start",
-            "CURRENT": "Curr",
+            "CURRENT": "Current",
             "MATCH": "Match",
         }
         mask_text = " (Mask)" if opts.use_masking else ""
-        return f"{action_text[opts.get_action_mode()]} > {frame_text[opts.get_frame_mode()]}{mask_text}"
+        return f"{action_text[opts.get_action_mode()]} | {frame_text[opts.get_frame_mode()]}{mask_text}"
 
     def draw(self, context):
         prefs = vars.prefs()
@@ -3107,7 +3155,7 @@ class CCICActionImportOptions(bpy.types.Operator):
             opts = props.action_options
             column.separator()
             column.row().label(text="Global Motion Options:")
-            #column.row().prop(opts, "action_mode")
+            column.row().prop(opts, "action_mode")
             column.row().prop(opts, "frame_mode")
 
         if self.chr_cache and self.chr_cache.action_options:
@@ -3121,7 +3169,7 @@ class CCICActionImportOptions(bpy.types.Operator):
             row.label(text=f"{self.chr_cache.character_name}")
             column = column.column()
             column.enabled = opts.override_global
-            #column.row().prop(props, "action_mode")
+            column.row().prop(opts, "action_mode")
             column.row().prop(opts, "frame_mode")
 
             return
@@ -3190,7 +3238,7 @@ def add_action_key_slot_channelbag(action, obj: bpy.types.Object, reuse=False, c
     return add_action_slot_channel(action, obj.name, "KEY", reuse=reuse, clear=clear)
 
 
-def add_action_ob_slot_channel(action, obj: bpy.types.Object, reuse=False, clear=False):
+def add_action_ob_slot_channelbag(action, obj: bpy.types.Object, reuse=False, clear=False):
     return add_action_slot_channel(action, obj.name, "OBJECT", reuse=reuse, clear=clear)
 
 
@@ -3205,7 +3253,6 @@ def copy_slot_actions(src_action, dst_action, slot_type):
         if slot.target_id_type == slot_type:
             dst_slot, dst_channel = add_action_slot_channel(dst_action, slot.name_display, slot_type)
             for fcurve in src_channel.fcurves:
-                reduce = slot_type == "KEY"
                 copy_fcurve_to_channel(fcurve, dst_channel)
 
 
@@ -3216,7 +3263,7 @@ def copy_action_shape_key_channels(rig, src_action, dst_action, fake_user=True):
         copy_slot_actions(src_action, dst_action, "KEY")
     else:
         rig_id = get_rig_id(rig)
-        motion_set = get_motion_set(dst_action)
+        motion_set = get_motion_set_ids(dst_action)
         set_id = motion_set[0]
         set_generation = motion_set[1]
         motion_prefix = get_motion_prefix(dst_action)
@@ -3268,6 +3315,7 @@ def fetch_action_curve_database(source_action):
     first_frame = None
     if utils.B440():
         all_actions = arm_actions + key_actions
+        a: bpy.types.Action
         for a in all_actions:
             channelbags = utils.get_action_channelbags(a)
             # build database of fcurves by slot
@@ -3290,7 +3338,7 @@ def fetch_action_curve_database(source_action):
                         slot_curves[id] = fcurve
                     if fcurve.keyframe_points and len(fcurve.keyframe_points) > 0:
                         frame = fcurve.keyframe_points[0].co.x
-                        if not first_frame or frame < first_frame:
+                        if first_frame is None or frame < first_frame:
                             first_frame = frame
     else:
         all_actions = []
@@ -3312,8 +3360,9 @@ def fetch_action_curve_database(source_action):
                     slot_curves[id] = fcurve
                 if fcurve.keyframe_points and len(fcurve.keyframe_points) > 0:
                     frame = fcurve.keyframe_points[0].co.x
-                    if not first_frame or frame < first_frame:
+                    if first_frame is None or frame < first_frame:
                         first_frame = frame
+    print(f"FIRST FRAME {first_frame}")
     database["first_frame"] = first_frame
     return database
 
@@ -3379,7 +3428,7 @@ def load_slotted_action(rig, action: bpy.types.Action, move=False, temp=None):
         used_ids = set()
 
         # add armature (object) slot
-        rig_slot, rig_channel = add_action_ob_slot_channel(action, rig, reuse=True, clear=True)
+        rig_slot, rig_channel = add_action_ob_slot_channelbag(action, rig, reuse=True, clear=True)
 
         # for each bone fcurve in the database in the order of the pose bones on the rig ...
         for bone in rig.pose.bones:
@@ -3529,6 +3578,7 @@ def load_slotted_action(rig, action: bpy.types.Action, move=False, temp=None):
                                 fcurve = key_channel.fcurves.new(data_path)
                                 fcurve.keyframe_points.add(1)
                                 fcurve.keyframe_points.foreach_set('co', [first_frame, 0.0])
+                                reset_fcurve_interpolation(fcurve)
 
                                 # add fcurve to expression group
                                 group_name = get_shape_key_group_name(key.name)
@@ -3659,7 +3709,7 @@ def load_separate_actions(rig: bpy.types.Object, action: bpy.types.Action, move=
             utils.clear_action(rig_action)
 
         # add slot and motion set data
-        rig_slot, rig_channel = add_action_ob_slot_channel(rig_action, rig, reuse=True, clear=True)
+        rig_slot, rig_channel = add_action_ob_slot_channelbag(rig_action, rig, reuse=True, clear=True)
         add_motion_set_data(rig_action, set_id, set_generation, arm_id=rl_arm_id, slotted=False)
         rig_action.use_fake_user = use_fake_user
 
@@ -3857,6 +3907,7 @@ def load_separate_actions(rig: bpy.types.Object, action: bpy.types.Action, move=
                                 fcurve = key_channel.fcurves.new(data_path)
                                 fcurve.keyframe_points.add(1)
                                 fcurve.keyframe_points.foreach_set('co', [first_frame, 0.0])
+                                reset_fcurve_interpolation(fcurve)
 
                                 # add fcurve to expression group
                                 group_name = get_shape_key_group_name(key.name)
@@ -3955,30 +4006,21 @@ def get_shape_key_group_name(key_name):
 
 def copy_fcurve_to_channel(from_fcurve: bpy.types.FCurve, to_channel) -> bpy.types.FCurve:
     if utils.B500():
-        fcurve = to_channel.fcurves.new_from_fcurve(from_fcurve)
+        to_fcurve: bpy.types.FCurve = to_channel.fcurves.new_from_fcurve(from_fcurve)
     else:
         data_path = from_fcurve.data_path
         index = from_fcurve.array_index
-        num_frames = len(from_fcurve.keyframe_points)
-        co_data = [0.0, 0.0]*num_frames
-        from_fcurve.keyframe_points.foreach_get("co", co_data)
-        fcurve: bpy.types.FCurve = to_channel.fcurves.new(data_path, index=index)
-        fcurve.keyframe_points.add(num_frames)
-        fcurve.keyframe_points.foreach_set("co", co_data)
-        for i in range(0, num_frames):
-            f = from_fcurve.keyframe_points[i]
-            t = fcurve.keyframe_points[i]
-            t.type = f.type
-            t.back = f.back
-            t.easing = f.easing
-            t.period = f.period
-            t.amplitude = f.amplitude
-            t.interpolation = f.interpolation
-            t.handle_left = f.handle_left.copy()
-            t.handle_right = f.handle_right.copy()
-            t.handle_left_type = f.handle_left_type
-            t.handle_right_type = f.handle_right_type
-    return fcurve
+        to_fcurve: bpy.types.FCurve = to_channel.fcurves.new(data_path, index=index)
+        to_fcurve.auto_smoothing = from_fcurve.auto_smoothing
+        to_fcurve.color = from_fcurve.color
+        to_fcurve.color_mode = from_fcurve.color_mode
+        to_fcurve.extrapolation = from_fcurve.extrapolation
+        to_fcurve.mute = from_fcurve.mute
+        to_fcurve.lock = from_fcurve.lock
+        from_keyframes, num_points = get_fcurve_keyframe_data(from_fcurve)
+        apply_fcurve_keyframe_data(to_fcurve, from_keyframes)
+    to_fcurve.update()
+    return to_fcurve
 
 
 def refactor_to_slotted_action(objects, actions):
@@ -4149,21 +4191,44 @@ def clean_action_keyframes(action: bpy.types.Action, bone_threshold=0.0001, key_
         area.type = area_type
 
 
-def reset_fcurve_interpolation(fcurve, interpolation="LINEAR"):
+def reset_fcurve_interpolation(fcurve: bpy.types.FCurve, interpolation="LINEAR"):
     if interpolation != "BEZIER":
         for keyframe in fcurve.keyframe_points:
             keyframe.interpolation = interpolation
     else:
         L = len(fcurve.keyframe_points)
         for i, keyframe in enumerate(fcurve.keyframe_points):
-            prev = fcurve.keyframe_points[i-1] if i > 0 else keyframe
-            next = fcurve.keyframe_points[i+1] if i < L-1 else keyframe
+            co = keyframe.co
+            prev: Vector = fcurve.keyframe_points[i-1].co if i > 0 else keyframe.co
+            next: Vector = fcurve.keyframe_points[i+1].co if i < L-1 else keyframe.co
             keyframe.handle_left_type = "AUTO"
-            keyframe.handle_left[0] = keyframe.co.x - 0.5
-            keyframe.handle_left[1] = (keyframe.co.y + prev.co.y) * 0.5
             keyframe.handle_right_type = "AUTO"
-            keyframe.handle_right[0] = keyframe.co.x + 0.5
-            keyframe.handle_right[1] = (keyframe.co.y + next.co.y) * 0.5
+            keyframe.interpolation = interpolation
+
+            if i == L-1:
+                next = co + Vector((1, 0))
+            if i == 0:
+                prev = co + Vector((-1, 0))
+
+            forward: Vector = co * 0.5 + next * 0.5
+            back: Vector = co * 0.5 + prev * 0.5
+            foward_delta: Vector = forward - co
+            back_delta: Vector = co - back
+
+            if (foward_delta.y >= 0 and back_delta.y < 0) or (foward_delta.y < 0 and back_delta.y >= 0):
+                forward.y = keyframe.co.y
+                back.y = keyframe.co.y
+            else:
+                dy = (forward.y - back.y) * 0.5
+                forward.y = co.y + dy
+                back.y = co.y - dy
+
+            keyframe.handle_left[0] = back.x
+            keyframe.handle_left[1] = back.y
+            keyframe.handle_right[0] = forward.x
+            keyframe.handle_right[1] = forward.y
+
+    fcurve.update()
 
 
 def shift_actions(action, to_frame, frame_start = 1):
@@ -4179,9 +4244,44 @@ def shift_actions(action, to_frame, frame_start = 1):
             frame = points_data[i*2]
             points_data[i*2] = frame - frame_start + to_frame
         fcurve.keyframe_points.foreach_set('co', points_data)
+        reset_fcurve_interpolation(fcurve)
 
 
-def mix_actions(src_action, dst_action, frame_start):
+def mix_actions(src_action, src_slot, dst_action, dst_slot, frame_start, frame_end):
+    src_channelbag = utils.get_action_channelbag(src_action, src_slot)
+    dst_channelbag = utils.get_action_channelbag(dst_action, dst_slot)
+
+    # determine which src curves correspond to which dst curves
+    fcurve_map = {}
+    used_dst = set()
+    for i, src_curve in enumerate(src_channelbag.fcurves):
+        for j, dst_curve in enumerate(dst_channelbag.fcurves):
+            if src_curve.data_path == dst_curve.data_path and src_curve.array_index == dst_curve.array_index:
+                fcurve_map[i] = j
+                used_dst.add(j)
+                break
+
+    # mix the src curves into the dst curve over the range
+    new_src = []
+    for i, src_curve in enumerate(src_channelbag.fcurves):
+        if i in fcurve_map:
+            j = fcurve_map[i]
+            dst_curve = dst_channelbag.fcurves[j]
+            mix_fcurve(src_curve, dst_curve, frame_start, frame_end)
+        else:
+            new_src.append(src_curve)
+
+    # these dst_curves have no corresponding curve in the src action, remove the mix keyframes?
+    for j, dst_curve in enumerate(dst_channelbag.fcurves):
+        if j not in used_dst:
+            mix_fcurve(None, dst_curve, frame_start, frame_end)
+
+    # for src curves not in the dst action, copy the fcurve in for that range
+    for src_curve in new_src:
+        copy_fcurve_to_channel(src_curve, dst_channelbag)
+
+
+def mix_actions_old(src_action, dst_action, frame_start):
     src_fcurves = utils.get_action_fcurves(src_action)
     dst_fcurves = utils.get_action_fcurves(dst_action)
     fcurve_map = {}
@@ -4197,56 +4297,229 @@ def mix_actions(src_action, dst_action, frame_start):
             mix_fcurve(src_curve, dst_curve, frame_start)
 
 
-def mix_fcurve(src_curve: bpy.types.FCurve, dst_curve: bpy.types.FCurve, frame_start):
-    src_curve.keyframe_points.foreach_get()
+KEYFRAME_DATA_SIZE = {
+        "co": 2,
+        "type": 1,
+        "back": 1,
+        "easing": 1,
+        "period": 1,
+        "amplitude": 1,
+        "interpolation": 1,
+        "handle_left": 2,
+        "handle_right": 2,
+        "handle_left_type": 1,
+        "handle_right_type": 1,
+    }
 
-    num_src_points = len(src_curve.keyframe_points)
-    src_data = [0.0,0.0]*num_src_points
-    src_curve.keyframe_points.foreach_get('co', src_data)
 
-    num_dst_points = len(dst_curve.keyframe_points)
-    dst_data = [0.0,0.0]*num_dst_points
-    dst_curve.keyframe_points.foreach_get('co', dst_data)
+def get_fcurve_keyframe_data(fcurve: bpy.types.FCurve):
+    if fcurve:
+        num_points = len(fcurve.keyframe_points)
+    else:
+        num_points = 0
 
-    src_start_frame = src_data[0]
-    src_end_frame = src_data[-2]
+    keyframe_data = {}
+    for attr, size in KEYFRAME_DATA_SIZE.items():
+        data = [0]*size*num_points
+        if fcurve:
+            fcurve.keyframe_points.foreach_get(attr, data)
+        keyframe_data[attr] = data
 
-    num_pre_points = 0
-    num_post_points = 0
-    src_index = -1
-    post_index = -1
+    return keyframe_data, num_points
 
+
+def overwrite_fcurve_keyframe_data(src_keyframes, dst_keyframes, frame_before, frame_after):
+    result_keyframes = {}
+    for attr in src_keyframes:
+        src_data = src_keyframes[attr]
+        dst_data = dst_keyframes[attr]
+        size = KEYFRAME_DATA_SIZE[attr]
+        result_keyframes[attr] = dst_data[:(frame_before+1)*size] + src_data + dst_data[frame_after*size:]
+    return result_keyframes
+
+
+def apply_fcurve_keyframe_data(fcurve: bpy.types.FCurve, keyframe_data):
+    num_points = len(keyframe_data["type"])
+    fcurve.keyframe_points.clear()
+    fcurve.keyframe_points.add(num_points)
+    for attr, data in keyframe_data.items():
+        fcurve.keyframe_points[0].back
+        fcurve.keyframe_points.foreach_set(attr, data)
+
+
+def get_fcurve_data(fcurve: bpy.types.FCurve):
+    fcurve_data = {
+        "array_index": fcurve.array_index,
+        "auto_smoothing": fcurve.auto_smoothing,
+        "color": fcurve.color.copy(),
+        "color_mode": fcurve.color_mode,
+        "data_path": fcurve.data_path,
+        "extrapolation": fcurve.extrapolation,
+    }
+    return fcurve_data
+
+
+def mix_fcurve(src_curve: bpy.types.FCurve, dst_curve: bpy.types.FCurve, frame_start, frame_end):
+    src_keyframes, num_src_points = get_fcurve_keyframe_data(src_curve)
+    dst_keyframes, num_dst_points = get_fcurve_keyframe_data(dst_curve)
+    dst_frames = dst_keyframes["co"][::2]
+    dst_index_before = 0
+    dst_index_after = num_dst_points
     for i in range(0, num_dst_points):
-        dst_frame = dst_data[i*2]
-        if dst_frame < src_start_frame:
-            num_pre_points += 1
-        if dst_frame > src_end_frame:
-            if post_index < 0:
-                post_index = i
-            num_post_points += 1
-        if src_start_frame >= dst_frame and src_index < 0:
-            src_index = i
-
-    num_result_points = num_pre_points + num_src_points + num_post_points
-    result_data = [0.0, 0.0]*num_result_points
-
-    # copy pre destination range
-    for i in range(0, num_pre_points * 2):
-        result_data[i] = dst_data[i]
-
-    # copy the source range
-    offset = src_index * 2
-    for i in range(0, num_src_points * 2):
-        result_data[i + offset] = src_data[i]
-
-    # copy the post destination range
-    offset = post_index * 2
-    for i in range(0, num_post_points * 2):
-        result_data[i + offset] = dst_data[i]
-
-    dst_curve.keyframe_points.clear()
-    dst_curve.keyframe_points.add(num_result_points)
-    dst_curve.keyframe_points.foreach_set('co', result_data)
+        frame = dst_frames[i]
+        if frame < frame_start:
+            dst_index_before = i
+        if frame > frame_end:
+            dst_index_after = i
+            break
+    result_keyframes = overwrite_fcurve_keyframe_data(src_keyframes, dst_keyframes, dst_index_before, dst_index_after)
+    apply_fcurve_keyframe_data(dst_curve, result_keyframes)
+    dst_curve.update()
 
 
+def mix_motion_set(rig, set_id, action_store_id, frame_start, frame_end):
+    props = vars.props()
+    stored_actions = props.fetch_stored_actions(action_store_id)
+    stored_rig_action = props.fetch_stored_rig_action(action_store_id)
+    done = False
+    objects = [rig]
+    for child in rig.children:
+        if utils.object_exists_is_mesh(child) and utils.object_has_shape_keys(child):
+            objects.append(child)
+    for obj in objects:
+        target = utils.get_action_target(obj)
+        new_action = target.animation_data.action
+        new_slot = target.animation_data.action_slot
+        if new_action:
+            action_store = props.get_action_store_for(action_store_id, obj)
+            if action_store:
+                # mix new action slot over old action slot
+                old_action = action_store.action
+                old_slot_name = action_store.slot_name
+                old_slot_id = action_store.slot_id
+                old_slot = utils.find_action_slot(old_action, slot_name=old_slot_name, slot_id=old_slot_id)
+                if old_action:
+                    mix_actions(new_action, new_slot, old_action, old_slot, frame_start, frame_end)
+                    done = True
+                else:
+                    utils.log_error("action store invalid!")
+            else:
+                copy_channels_to_rig_motion(rig, obj, new_action, new_slot, stored_rig_action)
+
+
+    if done:
+        props.restore_actions(action_store_id)
+        #delete_motion_set(set_id)
+
+
+def add_slot_channels_to_rig_motion(rig, obj, action, reuse=False, clear=False):
+    prefs = vars.prefs()
+
+    slot_type = "KEY" if utils.object_exists_is_mesh(obj) else "OBJECT"
+
+    if prefs.use_action_slots():
+
+        # add slot channel for src action slot channel
+        slot, channel = add_action_slot_channel(action, obj.name, slot_type, reuse=reuse, clear=clear)
+
+    else:
+
+        # determine motion set info
+        rig_id = get_rig_id(rig)
+        obj_id = get_obj_id(obj)
+        set_id = utils.get_prop(action, "rl_set_id")
+        set_generation = utils.get_prop(action, "rl_set_generation")
+        motion_prefix = get_motion_prefix(action)
+        motion_id = get_motion_id(action)
+        use_fake_user = action.use_fake_user
+
+        # generate a slot channel for the object
+        if set_id:
+            if slot_type == "OBJECT":
+                action_name = make_armature_action_name(rig_id, motion_id, motion_prefix)
+            else:
+                action_name = make_key_action_name(rig_id, motion_id, obj_id, motion_prefix)
+        else:
+            action_name = action.name
+
+        # make a new dst_action for this object
+        if reuse and action_name in bpy.data.actions:
+            action = bpy.data.actions[action_name]
+        else:
+            action = bpy.data.actions.new(action_name)
+            utils.force_action_name(action, action_name)
+        if clear:
+            utils.clear_action(action)
+        action.use_fake_user = use_fake_user
+        if set_id:
+            add_motion_set_data(action, set_id, set_generation, obj_id=obj_id, slotted=False)
+
+        # add slot and motion set data
+        if slot_type == "OBJECT":
+            slot, channel = add_action_ob_slot_channelbag(action, rig, reuse=True, clear=True)
+        else:
+            slot, channel = add_action_key_slot_channelbag(action, obj, reuse=True, clear=True)
+
+    return action, slot, channel
+
+
+def copy_channels_to_rig_motion(rig, obj, src_action, src_slot, dst_action):
+    src_channelbag = utils.get_action_channelbag(src_action, src_slot)
+    dst_action, dst_slot, dst_channel = add_slot_channels_to_rig_motion(rig, obj, dst_action, reuse=True, clear=True)
+
+    # copy the source fcurves into the dst_channel
+    for fcurve in src_channelbag.fcurves:
+        copy_fcurve_to_channel(fcurve, dst_channel)
+
+    if utils.object_exists_is_mesh(obj) and dst_slot.target_id_type == "KEY":
+        utils.safe_set_action(obj.data.shape_keys, dst_action, slot=dst_slot)
+    elif dst_slot.target_id_type == "OBJECT":
+        utils.safe_set_action(obj, dst_action, slot=dst_slot)
+    else:
+        utils.log_error(f"Unknown slot target for {dst_action} {dst_slot} {dst_channel}")
+
+
+def finalize_motion_import(rig, motion_action, action_store_id, action_mode, frame_start=None, frame_end=None):
+    props = vars.props()
+
+    motion_start_frame, motion_end_frame = get_motion_set_frame_range(motion_action)
+    if frame_start is None:
+        frame_start = motion_start_frame
+    if frame_end is None:
+        frame_end = motion_end_frame
+
+    utils.log_info("Finalize motion import:")
+    utils.log_info(f"motion action: {motion_action.name}")
+    utils.log_info(f"start frame: {frame_start}")
+    utils.log_info(f"end frame: {frame_end}")
+
+    if motion_action:
+        set_id = get_motion_set_ids(motion_action)[0]
+        stored_actions = props.fetch_stored_actions(action_store_id)
+
+        # now decide what to do with the actions based on the action_mode and frame_mode
+
+        if action_mode == "NEW":
+            # already loaded, do nothing else
+            utils.log_info(f"Action Mode NEW: Loaded new motion set: {motion_action.name} / ({set_id})")
+
+        elif not stored_actions:
+            # already loaded, do nothing else
+            utils.log_info(f"No current motion: Loaded new motion set: {motion_action.name} / ({set_id})")
+
+        elif action_mode == "REPLACE":
+            # get the stored motion set data (and name) and apply it to the new motion_action
+            old_action = stored_actions[0].action
+            old_set_id = get_motion_set_ids(old_action)[0]
+            utils.log_info(f"Action Mode REPLACE: updating motion set to: {old_action.name} / ({old_set_id})")
+            replace_motion_set(set_id, old_set_id)
+
+        elif action_mode == "BLEND":
+            old_action = stored_actions[0].action
+            old_set_id = get_motion_set_ids(old_action)[0]
+            utils.log_info(f"Action Mode BLEND: blending motion set: {motion_action.name} / ({set_id}) over existing motion: {old_action.name} / ({old_set_id})")
+            mix_motion_set(rig, set_id, action_store_id, frame_start, frame_end)
+            delete_motion_set(set_id)
+
+        props.delete_action_store(action_store_id)
 

@@ -2223,6 +2223,7 @@ class TCurve():
         fcurve.keyframe_points.clear()
         fcurve.keyframe_points.add(num_frames)
         fcurve.keyframe_points.foreach_set('co', fcurve_data)
+        rigutils.reset_fcurve_interpolation(fcurve)
 
     def dump(self):
         utils.log_always(self.name)

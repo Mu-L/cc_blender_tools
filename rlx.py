@@ -442,20 +442,7 @@ def add_cache_fcurves(action: bpy.types.Action, data_path, cache, num_frames, gr
             num_reduced = int(len(reduced) / 2)
             fcurve.keyframe_points.add(num_reduced)
             fcurve.keyframe_points.foreach_set('co', reduced)
-            if interpolation != "BEZIER":
-                for keyframe in fcurve.keyframe_points:
-                    keyframe.interpolation = interpolation
-            else:
-                L = len(fcurve.keyframe_points)
-                for i, keyframe in enumerate(fcurve.keyframe_points):
-                    prev = fcurve.keyframe_points[i-1] if i > 0 else keyframe
-                    next = fcurve.keyframe_points[i+1] if i < L-1 else keyframe
-                    keyframe.handle_left_type = "AUTO"
-                    keyframe.handle_left[0] = keyframe.co.x - 0.5
-                    keyframe.handle_left[1] = (keyframe.co.y + prev.co.y) * 0.5
-                    keyframe.handle_right_type = "AUTO"
-                    keyframe.handle_right[0] = keyframe.co.x + 0.5
-                    keyframe.handle_right[1] = (keyframe.co.y + next.co.y) * 0.5
+            rigutils.reset_fcurve_interpolation(fcurve, interpolation=interpolation)
 
 def reduce_cache(cache, interpolation):
     if not cache or len(cache) <= 4:

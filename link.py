@@ -149,13 +149,13 @@ class LinkActor():
 
     def get_import_modes(self) -> Tuple[str, str]:
         """return (action_mode, frame_mode)\n
-           action_mode = {"NEW", "REPLACE", "MIX"}\n
+           action_mode = {"NEW", "REPLACE", "BLEND"}\n
            frame_mode = {"START", "CURRENT", "MATCH"}
         """
         chr_cache = self.get_chr_cache()
         if chr_cache:
             return chr_cache.action_options.get_action_mode(), chr_cache.action_options.get_frame_mode()
-        return ("NEW", "START")
+        return ("NEW", "MATCH")
 
     def get_link_id(self):
         if self.object:
@@ -839,9 +839,7 @@ def get_datalink_rig_action(rig, motion_id=None, slotted=False):
     else:
         action = bpy.data.actions.new(action_name)
     utils.clear_action(action)
-    slot = None
-    if slotted:
-        slot, channel = rigutils.add_action_ob_slot_channel(action, rig)
+    slot, channel = rigutils.add_action_ob_slot_channelbag(action, rig)
     utils.safe_set_action(rig, action, slot=slot)
     action.use_fake_user = LINK_DATA.use_fake_user
     return action
@@ -1321,14 +1319,13 @@ def write_action_cache_curve(action: bpy.types.Action, cache, prop, data_path, n
                 fcurve.keyframe_points.foreach_set('co', cache_curve[:set_count])
             else:
                 fcurve.keyframe_points.foreach_set('co', cache_curve)
+            rigutils.reset_fcurve_interpolation(fcurve)
 
 
-def write_sequence_actions(actor: LinkActor, num_frames):
+def write_sequence_actions(actor: LinkActor, num_frames, start_frame):
     props = vars.props()
 
     if actor.cache:
-
-        action_mode, frame_mode = actor.get_import_modes()
 
         if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
 
@@ -1382,26 +1379,9 @@ def write_sequence_actions(actor: LinkActor, num_frames):
                 utils.safe_set_action(obj.data.shape_keys, None)
 
             if rig_action:
-
-                action_store_id = LINK_DATA.sequence_action_store_id
-                # now decide what to do with the actions based on the action_mode and frame_mode
-                if action_mode == "NEW":
-                    # load the resulting motion back onto the character
-                    rigutils.load_motion_set(rig, rig_action)
-                elif action_mode == "REPLACE":
-                    stored_actions = props.fetch_stored_actions(action_store_id)
-                    # then replace the old actions with the new ...
-                    # replace the fcurves directly, add new / remove old actions as needed
-                    props.restore_actions(action_store_id)
-                elif action_mode == "MIX":
-                    stored_actions = props.fetch_stored_actions(action_store_id)
-                    # mix the new actions into the old actions
-                    # add new actions as needed
-                    props.restore_actions(action_store_id)
-                else:
-                    ...
-                props.delete_action_store(action_store_id)
-
+                action_mode, frame_mode = actor.get_import_modes()
+                rigutils.load_motion_set(rig, rig_action)
+                rigutils.finalize_motion_import(rig, rig_action, LINK_DATA.sequence_action_store_id, action_mode)
 
         elif actor.get_type() == "LIGHT":
 
@@ -3535,7 +3515,10 @@ class LinkService():
         for actor in actors:
             if actor.ready(require_cache=LINK_DATA.set_keyframes):
                 if LINK_DATA.set_keyframes:
-                    write_sequence_actions(actor, 1)
+                    opt_start_frame = LinkActor.get_sequence_frame(actor, LINK_DATA.sequence_start_frame,
+                                                                          LINK_DATA.sequence_start_frame,
+                                                                          LINK_DATA.scene_current_frame)
+                    write_sequence_actions(actor, 1, opt_start_frame)
                 if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
                     remove_datalink_import_rig(actor, apply_contraints=not LINK_DATA.set_keyframes)
 
@@ -3698,7 +3681,10 @@ class LinkService():
         utils.mark_timer("WRITE")
         for actor in actors:
             if LINK_DATA.set_keyframes:
-                write_sequence_actions(actor, num_frames)
+                opt_start_frame = LinkActor.get_sequence_frame(actor, LINK_DATA.sequence_start_frame,
+                                                                      LINK_DATA.sequence_start_frame,
+                                                                      LINK_DATA.scene_current_frame)
+                write_sequence_actions(actor, num_frames, opt_start_frame)
             if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
                 remove_datalink_import_rig(actor, apply_contraints=not LINK_DATA.set_keyframes)
             if actor.get_type() == "PROP":
@@ -4030,17 +4016,16 @@ class LinkService():
             motion_rig = utils.get_active_object()
             if motion_rig:
                 self.replace_actor_motion(actor, motion_rig)
-                #except:
-                #    utils.log_error(f"Error importing motion {fbx_path}")
-                #    return
                 update_link_status(f"Motion Imported: {actor.name}")
             else:
                 update_link_status(f"Motion Import Failed!: {actor.name}")
 
     def replace_actor_motion(self, actor: LinkActor, motion_rig):
+        props = vars.props()
         prefs = vars.prefs()
 
         if actor and motion_rig:
+            incoming_motion_action = None
             motion_rig_action, motion_rig_slot = utils.safe_get_action_slot(motion_rig)
             use_slotted = prefs.use_action_slots()
             motion_objects = utils.get_child_objects(motion_rig)
@@ -4053,6 +4038,8 @@ class LinkService():
             chr_cache = actor.get_chr_cache()
             actor_rig_id = rigutils.get_rig_id(actor_rig)
             arm_id = utils.get_rl_object_id(actor_rig)
+            # store existing motion
+            action_store_id = props.store_actions(actor_rig)
 
             # generate new action set data
             motion_id = rigutils.get_unique_set_motion_id(actor_rig_id, motion_id, LINK_DATA.motion_prefix, slotted=use_slotted)
@@ -4078,12 +4065,13 @@ class LinkService():
                         rigutils.copy_action_shape_key_channels(actor_rig, motion_rig_action, baked_action, fake_user=LINK_DATA.use_fake_user)
                         rigutils.delete_motion_set(motion_rig_action)
                         rigutils.load_motion_set(actor_rig, baked_action)
+                        incoming_motion_action = baked_action
                     else:
                         # update the existing rig bind pose from the new motion
                         rigutils.copy_rest_pose(motion_rig, actor_rig)
                         motion_rig_action.use_fake_user = LINK_DATA.use_fake_user
                         # load_motion_set will create a new motion set when loading onto a different prop rig
-                        rigutils.load_motion_set(actor_rig, motion_rig_action, move=True)
+                        incoming_motion_action = rigutils.load_motion_set(actor_rig, motion_rig_action, move=True)
                     rigutils.update_prop_rig(actor_rig)
 
                 else: # Avatar
@@ -4099,17 +4087,23 @@ class LinkService():
                         rigutils.copy_action_shape_key_channels(actor_rig, motion_rig_action, baked_action, fake_user=LINK_DATA.use_fake_user)
                         rigutils.delete_motion_set(motion_rig_action)
                         rigutils.load_motion_set(actor_rig, baked_action)
+                        incoming_motion_action = baked_action
                     else:
                         actor_rig_action = utils.safe_get_action(actor_rig)
                         motion_rig_action.use_fake_user = LINK_DATA.use_fake_user
                         # load_motion_set will create a new motion set when loading onto a different character rig
-                        rigutils.load_motion_set(actor_rig, motion_rig_action, move=True)
+                        incoming_motion_action = rigutils.load_motion_set(actor_rig, motion_rig_action, move=True)
                     rigutils.update_avatar_rig(actor_rig)
 
             for obj in motion_objects:
                 utils.delete_mesh_object(obj)
             if motion_rig:
                 utils.delete_armature_object(motion_rig)
+
+            if actor_rig and incoming_motion_action:
+                action_mode, frame_mode = actor.get_import_modes()
+                rigutils.finalize_motion_import(actor_rig, incoming_motion_action, action_store_id, action_mode)
+
             utils.log_recess()
 
     def receive_actor_update(self, data):

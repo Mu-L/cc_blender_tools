@@ -1125,13 +1125,18 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
                 actor.set_cache(actor_cache)
 
 
-def set_frame_range(start, end):
-    bpy.data.scenes["Scene"].frame_start = start
-    bpy.data.scenes["Scene"].frame_end = end
+def set_frame_range(start, end, preview=False):
+    if preview:
+        bpy.context.scene.use_preview_range = True
+        bpy.context.scene.frame_preview_start = start
+        bpy.context.scene.frame_preview_end = end
+    else:
+        bpy.context.scene.frame_start = start
+        bpy.context.scene.frame_end = end
 
 
 def set_frame(frame):
-    bpy.data.scenes["Scene"].frame_current = frame
+    bpy.context.scene.frame_current = frame
     bpy.context.view_layer.update()
 
 
@@ -3431,6 +3436,24 @@ class LinkService():
                 utils.set_mode("POSE")
         return rigs, objects
 
+    def get_actors_frame_range(self, actors: any, frame, start_frame, end_frame, current_frame):
+        T = type(actors)
+        if T is list:
+            ...
+        elif T is LinkActor:
+            actors = [ actors ]
+        else:
+            actors = [ LinkActor(actors) ]
+        if actors and len(actors) == 1:
+            opt_start_frame = LinkActor.get_sequence_frame(actors[0], start_frame, start_frame, current_frame)
+            opt_end_frame = LinkActor.get_sequence_frame(actors[0], end_frame, start_frame, current_frame)
+            opt_frame = LinkActor.get_sequence_frame(actors[0], frame, start_frame, current_frame)
+        else:
+            opt_start_frame = LinkActor.get_sequence_frame(None, start_frame, start_frame, current_frame)
+            opt_end_frame = LinkActor.get_sequence_frame(None, end_frame, start_frame, current_frame)
+            opt_frame = LinkActor.get_sequence_frame(None, frame, start_frame, current_frame)
+        return opt_frame, opt_start_frame, opt_end_frame
+
     def receive_pose(self, data):
         props = vars.props()
         global LINK_DATA
@@ -3464,16 +3487,16 @@ class LinkService():
             if actor:
                 actors.append(actor)
 
+        opt_frame, opt_start_frame, opt_end_frame = \
+            self.get_actors_frame_range(actors, frame, start_frame, end_frame, current_frame)
+
         # set pose frame
         update_link_status(f"Receiving Pose Frame: {frame}")
         LINK_DATA.sequence_actors = actors
         LINK_DATA.sequence_type = "POSE"
         bpy.ops.screen.animation_cancel()
-        if LINK_DATA.set_keyframes:
-            set_frame_range(start_frame, end_frame)
-            set_frame(frame)
-        else:
-            bpy.context.view_layer.update()
+        set_frame(opt_frame)
+        bpy.context.view_layer.update()
 
     def receive_pose_frame(self, data):
         global LINK_DATA
@@ -3551,6 +3574,7 @@ class LinkService():
         json_data = decode_to_json(data)
         start_frame = RLFA(json_data["start_frame"])
         end_frame = RLFA(json_data["end_frame"])
+        frame = RLFA(json_data["frame"])
         current_frame = bpy.context.scene.frame_current
         motion_prefix = json_data.get("motion_prefix", "")
         use_fake_user = json_data.get("use_fake_user", False)
@@ -3573,6 +3597,10 @@ class LinkService():
             actor = LinkActor.find_actor(link_id, search_name=name, search_type=character_type)
             if actor:
                 actors.append(actor)
+
+        opt_frame, opt_start_frame, opt_end_frame = \
+            self.get_actors_frame_range(actors, frame, start_frame, end_frame, current_frame)
+
         LINK_DATA.sequence_actors = actors
         LINK_DATA.sequence_type = "SEQUENCE"
 
@@ -3582,10 +3610,8 @@ class LinkService():
         # update scene range
         update_link_status(f"Receiving Live Sequence: {num_frames} frames")
         bpy.ops.screen.animation_cancel()
-        opt_start_frame = LinkActor.get_sequence_frame(None, start_frame, start_frame, current_frame)
-        opt_end_frame = LinkActor.get_sequence_frame(None, end_frame, start_frame, current_frame)
-        set_frame_range(opt_start_frame, opt_end_frame)
-        set_frame(opt_start_frame)
+        set_frame_range(opt_start_frame, opt_end_frame, preview=True)
+        set_frame(opt_frame)
 
         utils.start_timer("FRAME")
         utils.start_timer("DECODE")
@@ -3964,7 +3990,6 @@ class LinkService():
 
         # update scene range
         bpy.ops.screen.animation_cancel()
-        set_frame_range(LINK_DATA.sequence_start_frame, LINK_DATA.sequence_end_frame)
 
         actor = LinkActor.find_actor(link_id, search_name=name, search_type=character_type)
         if not actor:
@@ -3975,7 +4000,8 @@ class LinkService():
                 link_id = chr_cache.link_id
                 if link_id:
                     utils.log_info(f"Redirecting to active character: {chr_cache.character_name}")
-                    opt_start_frame = chr_cache.action_options.get_start_frame(start_frame, current_frame)
+                    opt_frame, opt_start_frame, opt_end_frame = \
+                        self.get_actors_frame_range(chr_cache, frame, start_frame, end_frame, current_frame)
                     if prefs.datalink_confirm_mismatch:
                         bpy.ops.ccic.link_confirm_dialog("INVOKE_DEFAULT",
                                                         message=f"Character {name} not found, do you want to apply the motion to the current character: {chr_cache.character_name}?",
@@ -3988,13 +4014,16 @@ class LinkService():
                                                         prefs="datalink_confirm_mismatch")
                     else:
                         self.do_motion_import(link_id, fbx_path, character_type, opt_start_frame)
-                    set_frame(opt_start_frame)
+                    set_frame_range(opt_start_frame, opt_end_frame, preview=True)
+                    set_frame(opt_frame)
             return
 
         link_id = actor.get_link_id()
-        opt_start_frame = LinkActor.get_start_frame(actor, start_frame, current_frame)
+        opt_frame, opt_start_frame, opt_end_frame = \
+            self.get_actors_frame_range(actor, frame, start_frame, end_frame, current_frame)
         self.do_motion_import(link_id, fbx_path, character_type, opt_start_frame)
-        set_frame(opt_start_frame)
+        set_frame_range(opt_start_frame, opt_end_frame, preview=True)
+        set_frame(opt_frame)
 
     def do_motion_import(self, link_id, fbx_path, character_type, start_frame):
         actor = LinkActor.find_actor(link_id, search_type=character_type)

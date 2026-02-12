@@ -4247,9 +4247,17 @@ def shift_actions(action, to_frame, frame_start = 1):
         reset_fcurve_interpolation(fcurve)
 
 
-def mix_actions(src_action, src_slot, dst_action, dst_slot, frame_start, frame_end):
+def mix_actions(rig, obj, src_action, src_slot, dst_action, dst_slot, frame_start, frame_end):
     src_channelbag = utils.get_action_channelbag(src_action, src_slot)
     dst_channelbag = utils.get_action_channelbag(dst_action, dst_slot)
+
+    if not src_channelbag:
+        utils.log_error(f"Mix Actions: No source channels!")
+        return
+
+    if not dst_channelbag:
+        utils.log_error(f"Mix Actions: No destination channels!")
+        return
 
     # determine which src curves correspond to which dst curves
     fcurve_map = {}
@@ -4392,20 +4400,26 @@ def mix_motion_set(rig, set_id, action_store_id, frame_start, frame_end):
         new_slot = target.animation_data.action_slot
         if new_action:
             action_store = props.get_action_store_for(action_store_id, obj)
-            if action_store:
+            valid_slot = (not utils.B440() or action_store.slot_id)
+            if action_store and valid_slot:
                 # mix new action slot over old action slot
                 old_action = action_store.action
                 old_slot_name = action_store.slot_name
                 old_slot_id = action_store.slot_id
+                # if the old slot was removed, try the object name?
+                if not old_slot_name:
+                    old_slot_name = obj.name
                 old_slot = utils.find_action_slot(old_action, slot_name=old_slot_name, slot_id=old_slot_id)
                 if old_action:
-                    mix_actions(new_action, new_slot, old_action, old_slot, frame_start, frame_end)
+                    mix_actions(rig, obj, new_action, new_slot, old_action, old_slot, frame_start, frame_end)
                     done = True
                 else:
                     utils.log_error("action store invalid!")
             else:
                 copy_channels_to_rig_motion(rig, obj, new_action, new_slot, stored_rig_action)
-
+                # invalidate the action store (if there is one) to prevent it restoring an action (with the wrong slot)
+                if action_store:
+                    action_store.action = None
 
     if done:
         props.restore_actions(action_store_id)
@@ -4477,6 +4491,10 @@ def copy_channels_to_rig_motion(rig, obj, src_action, src_slot, dst_action):
         utils.safe_set_action(obj, dst_action, slot=dst_slot)
     else:
         utils.log_error(f"Unknown slot target for {dst_action} {dst_slot} {dst_channel}")
+        dst_action = None
+        dst_slot = None
+
+    return dst_action, dst_slot
 
 
 def finalize_motion_import(rig, motion_action, action_store_id, action_mode, frame_start=None, frame_end=None):

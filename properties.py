@@ -651,7 +651,7 @@ class CCICActionStore(bpy.types.PropertyGroup):
 
     def restore(self):
         target = utils.get_action_target(self.object)
-        if target:
+        if target and self.action:
             slot = utils.find_action_slot(self.action, slot_name=self.slot_name, slot_id=self.slot_id)
             utils.safe_set_action(target, self.action, slot=slot)
 

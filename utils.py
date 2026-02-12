@@ -2067,7 +2067,7 @@ def make_action(name, reuse=False, slot_type=None, target_obj=None, slot_name=No
 
 
 def make_action_slot(action, slot_type, slot_name):
-    if B440():
+    if action and B440():
         for slot in action.slots:
             if slot.target_id_type == slot_type and strip_name(slot.name) == slot_name:
                 return slot
@@ -2079,7 +2079,7 @@ def make_action_slot(action, slot_type, slot_name):
 
 
 def get_action_slot(action, slot_type):
-    if B440():
+    if action and B440():
         for slot in action.slots:
             if slot.target_id_type == slot_type:
                 return slot
@@ -2087,7 +2087,7 @@ def get_action_slot(action, slot_type):
 
 
 def find_action_slot(action, slot_type=None, slot_name=None, slot_id=None):
-    if B440():
+    if action and B440():
         for slot in action.slots:
             if slot_type and slot_id:
                 if slot.target_id_type == slot_type and slot.identifier == slot_id:

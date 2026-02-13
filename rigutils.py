@@ -564,10 +564,7 @@ def get_formatted_prefix(motion_prefix):
 
 
 def get_unique_set_motion_id(rig_id, motion_id, motion_prefix, exclude_set_id=None, slotted=False):
-    if slotted:
-        test_name = make_slotted_action_name(rig_id, motion_id, motion_prefix)
-    else:
-        test_name = make_armature_action_name(rig_id, motion_id, motion_prefix)
+    test_name = make_armature_action_name(rig_id, motion_id, motion_prefix, slotted=slotted)
     base_name = test_name
     num_suffix = 0
     while test_name in bpy.data.actions:
@@ -601,20 +598,21 @@ def generate_action_name(rig_id, code_id, obj_id, motion_id, motion_prefix):
     return name
     #return f"{f_prefix}{rig_id}|{code_id}|{motion_id}"
 
-def make_slotted_action_name(rig_id, motion_id, motion_prefix):
-    return generate_action_name(rig_id, "", "", motion_id, motion_prefix)
 
-def make_armature_action_name(rig_id, motion_id, motion_prefix):
-    return generate_action_name(rig_id, "A", "", motion_id, motion_prefix)
+def make_armature_action_name(rig_id, motion_id, motion_prefix, slotted=False):
+    if slotted:
+        return generate_action_name(rig_id, "", "", motion_id, motion_prefix)
+    else:
+        return generate_action_name(rig_id, "A", "", motion_id, motion_prefix)
+
 
 def make_key_action_name(rig_id, motion_id, obj_id, motion_prefix):
     return generate_action_name(rig_id, "K", obj_id, motion_id, motion_prefix)
 
-def set_slotted_action_name(action, rig_id, motion_id, motion_prefix):
-    action.name = make_slotted_action_name(rig_id, motion_id, motion_prefix)
 
-def set_armature_action_name(action, rig_id, motion_id, motion_prefix):
-    action.name = make_armature_action_name(rig_id, motion_id, motion_prefix)
+def set_armature_action_name(action, rig_id, motion_id, motion_prefix, slotted=False):
+    action.name = make_armature_action_name(rig_id, motion_id, motion_prefix, slotted=slotted)
+
 
 def set_key_action_name(action, rig_id, motion_id, obj_id, motion_prefix):
     action.name = make_key_action_name(rig_id, motion_id, obj_id, motion_prefix)
@@ -739,6 +737,30 @@ def load_motion_set(rig, action, move=False, temp=None):
             update_motion_set_index(arm_action)
         utils.log_recess()
     return arm_action
+
+
+def new_motion_set(rig):
+    prefs = vars.prefs()
+    slotted = prefs.use_action_slots()
+    rig_id = get_rig_id(rig)
+    rl_arm_id = utils.get_rl_object_id(rig)
+    set_id = generate_set_id()
+    set_generation = utils.get_prop(rig, "rl_set_generation")
+    motion_id = "New"
+    motion_id = get_unique_set_motion_id(rig_id, motion_id, "", slotted=slotted)
+    action_name = make_armature_action_name(rig_id, motion_id, "", slotted=slotted)
+    action = bpy.data.actions.new(action_name)
+    slot, channel = add_action_ob_slot_channelbag(action, rig)
+    add_motion_set_data(action, set_id, set_generation, arm_id=rl_arm_id, slotted=slotted)
+    utils.safe_set_action(rig, action, slot=slot)
+    utils.safe_set_action(rig.data, None, create=False)
+    for child in rig.children:
+        if utils.object_exists_is_mesh(child) and utils.object_has_shape_keys(child):
+            utils.safe_set_action(child, None, create=False)
+            utils.safe_set_action(child.data, None, create=False)
+            utils.safe_set_action(child.data.shape_keys, None, create=False)
+    update_motion_set_index(action)
+    return action
 
 
 def clear_motion_set(rig):
@@ -2559,16 +2581,13 @@ class CCICMotionSetRename(bpy.types.Operator):
                 if action["rl_set_id"] == self.set_id:
                     set_id, set_generation, action_type_id, obj_id = get_motion_set_ids(action)
                     if action_type_id == "ARM":
-                        name = make_armature_action_name(rig_id, motion_id, prefix)
-                        print(f"arm name: {name}")
+                        name = make_armature_action_name(rig_id, motion_id, prefix, slotted=False)
                         action.name = name
                     elif action_type_id == "KEY":
                         name = make_key_action_name(rig_id, motion_id, obj_id, prefix)
-                        print(f"key name: {name}")
                         action.name = name
                     elif action_type_id == "SLOTTED":
-                        name = make_slotted_action_name(rig_id, motion_id, prefix)
-                        print(f"slotted name: {name}")
+                        name = make_armature_action_name(rig_id, motion_id, prefix, slotted=True)
                         action.name = name
         return {"FINISHED"}
 
@@ -2768,11 +2787,11 @@ class CCICRigUtils(bpy.types.Operator):
         props = vars.props()
         prefs = vars.prefs()
         chr_cache = props.get_context_character_cache(context)
+        rig = chr_cache.get_armature() if chr_cache else None
 
         if chr_cache:
 
             props.store_ui_list_indices()
-            rig = chr_cache.get_armature()
 
             if rig:
                 if self.param == "TOGGLE_SHOW_FULL_RIG":
@@ -2840,6 +2859,9 @@ class CCICRigUtils(bpy.types.Operator):
                 elif self.param == "CLEAR_ACTION_SET":
                     clear_motion_set(rig)
 
+                elif self.param == "NEW_ACTION_SET":
+                    new_motion_set(rig)
+
                 elif self.param == "DISABLE_CONSTRAINT_STRETCH":
                     mode_selection = utils.store_mode_selection_state()
                     rigify_rig = chr_cache.get_armature()
@@ -2904,6 +2926,12 @@ class CCICRigUtils(bpy.types.Operator):
                 delete_motion_set(action)
 
             props.restore_ui_list_indices()
+
+        if self.param == "CLEAN_ACTIONS":
+            if utils.object_exists_is_camera(context.object) or utils.object_exists_is_light(context.object):
+                clean_actions(context.object)
+            elif rig:
+                clean_actions(rig)
 
         return {"FINISHED"}
 
@@ -3560,7 +3588,7 @@ def load_slotted_action(rig, action: bpy.types.Action, move=False, temp=None):
                             used_ids.add(id)
                             done_ids.add(id)
 
-                if prefs.action_add_empty_key_channels:
+                if prefs.action_add_empty_key_channels and first_frame is not None:
 
                     # for any shape keys without fcurves that are source shape keys
                     # (i.e. shape keys from the body/tongue/eyes)
@@ -3889,7 +3917,7 @@ def load_separate_actions(rig: bpy.types.Object, action: bpy.types.Action, move=
                             used_ids.add(id)
                             done_ids.add(id)
 
-                if prefs.action_add_empty_key_channels:
+                if prefs.action_add_empty_key_channels and first_frame is not None:
 
                     # for any shape keys without fcurves that are source shape keys ...
                     # (i.e. shape keys from the body/tongue/eyes)
@@ -4094,12 +4122,29 @@ def refactor_to_slotted_action(objects, actions):
     return combined
 
 
-def clean_action_keyframes(action: bpy.types.Action, bone_threshold=0.0001, key_threshold=0.001, facerig_threshold=0.00001, other_threshold=0.0001, channels=False):
+def clean_actions(obj):
+    if utils.object_exists_is_camera(obj) or utils.object_exists_is_light(obj):
+        object_action = utils.safe_get_action(obj)
+        data_action = utils.safe_get_action(obj.data)
+        clean_action_keyframes(object_action)
+        clean_action_keyframes(data_action)
+    elif utils.object_exists_is_armature(obj):
+        rig_action = utils.safe_get_action(obj)
+        clean_action_keyframes(rig_action)
+        for child in obj.children:
+            if utils.object_exists_is_mesh(child) and utils.object_has_shape_keys(obj):
+                key_action = utils.safe_get_action(child)
+                clean_action_keyframes(key_action)
+
+
+def clean_action_keyframes(action: bpy.types.Action, bone_threshold=0.0001, key_threshold=0.001, facerig_threshold=0.00001, other_threshold=0.0001, channels=True):
     """Note: bone threshold value of 0.0001 will clean bone key-frames to 1/200th of a degree 1/10th of a mm
              key threshold value of 0.01 will clean shape key key-frames to 1/1000th of their range
              facerig threshold value of about 0.00001 will clean key-frames on the
                      face rig controls to within 1/1000th on it's driven shape-key value."""
 
+    if not action:
+        return
     fcurves = utils.get_action_fcurves(action)
     bone_curves = []
     key_curves = []
@@ -4415,7 +4460,6 @@ def mix_motion_set(rig, action_store_id, frame_start, frame_end):
 
     for obj, action_store, slot_type, new_action, new_slot, old_action, old_slot_id in mix_pairs:
         if new_action:
-            print(new_action.name, slot_type, old_action.name, "OLD_ID", old_slot_id)
             valid_slot = (not utils.B440() or old_slot_id)
             if old_action and valid_slot:
                 # mix new action slot over old action slot
@@ -4462,7 +4506,7 @@ def add_slot_channels_to_rig_motion(rig, obj, slot_type, action, reuse=False, cl
             # generate a slot channel for the object
             if set_id:
                 if slot_type == "OBJECT":
-                    action_name = make_armature_action_name(rig_id, motion_id, motion_prefix)
+                    action_name = make_armature_action_name(rig_id, motion_id, motion_prefix, slotted=False)
                 elif slot_type == "KEY":
                     action_name = make_key_action_name(rig_id, motion_id, obj_id, motion_prefix)
 
@@ -4508,7 +4552,6 @@ def copy_channels_to_rig_motion(rig, obj, slot_type, src_action, src_slot, dst_a
     for fcurve in src_channelbag.fcurves:
         copy_fcurve_to_channel(fcurve, dst_channel)
 
-    print("--->",dst_action, dst_slot, slot_type)
     if slot_type == "KEY":
         utils.safe_set_action(obj.data.shape_keys, dst_action, slot=dst_slot)
     elif slot_type == "OBJECT":

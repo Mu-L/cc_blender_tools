@@ -489,10 +489,7 @@ def remap_action_names(arm, objects, actions, source_id, motion_prefix=""):
         if motion_id in motion_ids:
             set_id, set_generation = motion_sets[motion_id]
             if action in armature_actions:
-                if prefs.use_action_slots():
-                    action_name = rigutils.make_slotted_action_name(rig_id, motion_id, motion_prefix)
-                else:
-                    action_name = rigutils.make_armature_action_name(rig_id, motion_id, motion_prefix)
+                action_name = rigutils.make_armature_action_name(rig_id, motion_id, motion_prefix, slotted=prefs.use_action_slots())
                 utils.log_info(f"Renaming action: {action.name} to {action_name}")
                 action.name = action_name
                 rigutils.add_motion_set_data(action, set_id, set_generation,

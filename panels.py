@@ -2731,6 +2731,11 @@ def motion_set_ui(layout: bpy.types.UILayout, chr_cache, show_nla=False):
     if rig_set_generation != action_set_generation:
         row.enabled = False
     col_2.operator("ccic.rigutils", icon="REMOVE", text="Clear").param = "CLEAR_ACTION_SET"
+    col_1.separator()
+    col_2.separator()
+    col_1.operator("ccic.rigutils", icon="PLUS", text="New").param = "NEW_ACTION_SET"
+    col_2.operator("ccic.rigutils", icon="MODIFIER_ON", text="Clean").param = "CLEAN_ACTIONS"
+
 
     if show_nla:
         row = col_1.row(align=True)

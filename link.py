@@ -836,10 +836,7 @@ def get_datalink_rig_action(rig, motion_id=None, slotted=False):
     if not motion_id:
         motion_id = "DataLink"
     rig_id = rigutils.get_rig_id(rig)
-    if slotted:
-        action_name = rigutils.make_slotted_action_name(rig_id, motion_id, LINK_DATA.motion_prefix)
-    else:
-        action_name = rigutils.make_armature_action_name(rig_id, motion_id, LINK_DATA.motion_prefix)
+    action_name = rigutils.make_armature_action_name(rig_id, motion_id, LINK_DATA.motion_prefix, slotted=slotted)
     if action_name in bpy.data.actions:
         action = bpy.data.actions[action_name]
     else:
@@ -1246,7 +1243,6 @@ def store_shape_key_cache_keyframes(actor: LinkActor, frame, start, expression_w
 
 def store_light_cache_keyframes(actor: LinkActor, frame, start):
 
-    print(frame, start)
     if not actor.cache:
         utils.log_error(f"No actor cache: {actor.name}")
         return
@@ -4142,10 +4138,7 @@ class LinkService():
                         baked_action = rigutils.bake_rig_action_from_source(motion_rig, actor_rig)
                         baked_action.use_fake_user = LINK_DATA.use_fake_user
                         rigutils.add_motion_set_data(baked_action, set_id, set_generation, arm_id=arm_id, slotted=use_slotted)
-                        if use_slotted:
-                            rigutils.set_slotted_action_name(baked_action, actor_rig_id, motion_id, LINK_DATA.motion_prefix)
-                        else:
-                            rigutils.set_armature_action_name(baked_action, actor_rig_id, motion_id, LINK_DATA.motion_prefix)
+                        rigutils.set_armature_action_name(baked_action, actor_rig_id, motion_id, LINK_DATA.motion_prefix, slotted=use_slotted)
                         rigutils.copy_action_shape_key_channels(actor_rig, motion_rig_action, baked_action, fake_user=LINK_DATA.use_fake_user)
                         rigutils.delete_motion_set(motion_rig_action)
                         rigutils.load_motion_set(actor_rig, baked_action)
@@ -4164,10 +4157,7 @@ class LinkService():
                         baked_action = rigging.adv_bake_retarget_to_rigify(None, chr_cache, motion_rig, motion_rig_action)
                         baked_action.use_fake_user = LINK_DATA.use_fake_user
                         rigutils.add_motion_set_data(baked_action, set_id, set_generation, arm_id=arm_id, slotted=use_slotted)
-                        if use_slotted:
-                            rigutils.set_slotted_action_name(baked_action, actor_rig_id, motion_id, LINK_DATA.motion_prefix)
-                        else:
-                            rigutils.set_armature_action_name(baked_action, actor_rig_id, motion_id, LINK_DATA.motion_prefix)
+                        rigutils.set_armature_action_name(baked_action, actor_rig_id, motion_id, LINK_DATA.motion_prefix, slotted=use_slotted)
                         rigutils.copy_action_shape_key_channels(actor_rig, motion_rig_action, baked_action, fake_user=LINK_DATA.use_fake_user)
                         rigutils.delete_motion_set(motion_rig_action)
                         rigutils.load_motion_set(actor_rig, baked_action)

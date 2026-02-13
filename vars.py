@@ -43,6 +43,11 @@ def props():
     res: CC3ImportProps = getattr(bpy.context.scene, "CC3ImportProps", None)
     return res
 
+def is_chr_cache(cc):
+    from . properties import CC3CharacterCache
+    T = type(cc)
+    return T is CC3CharacterCache
+
 def link_props():
     from . properties import CCICLinkProps
     res: CCICLinkProps = getattr(bpy.context.scene, "CCICLinkProps", None)

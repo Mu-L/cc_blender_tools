@@ -879,18 +879,23 @@ class ACTION_SET_UL_List(bpy.types.UIList):
         item : bpy.types.Action
         chr_cache = props.get_context_character_cache(context)
         arm_set_generation = None
+        arm_rig_id = None
         if chr_cache:
             arm = chr_cache.get_armature()
             arm_set_generation = rigutils.get_set_generation(arm)
+            arm_rig_id = utils.get_prop(arm, "rl_armature_id")
         for i, item in enumerate(items):
             allowed = False
             action_set_generation = rigutils.get_set_generation(item)
             action_type = utils.get_prop(item, "rl_action_type")
-            if (arm_set_generation and
-                action_set_generation and
-                (action_type == "ARM" or action_type == "SLOTTED") and
-                (not props.filter_motion_set or arm_set_generation == action_set_generation)):
-                allowed = True
+            action_rig_id = utils.get_prop(item, "rl_armature_id")
+            if action_type == "ARM" or action_type == "SLOTTED":
+                if props.filter_motion_set_type == "RIG":
+                    allowed = arm_rig_id and action_rig_id and arm_rig_id == action_rig_id
+                elif props.filter_motion_set_type == "GEN":
+                    allowed = arm_set_generation and action_set_generation and arm_set_generation == action_set_generation
+                else:
+                    allowed = True
             # filter by name
             if allowed and self.filter_name and self.filter_name != "*":
                 if self.filter_name not in item.name:
@@ -2698,9 +2703,9 @@ def motion_set_ui(layout: bpy.types.UILayout, chr_cache, show_nla=False):
         rig_set_generation = rigutils.get_set_generation(rig)
 
     col = layout.column(align=True)
-    split = col.split(factor=0.65)
+    split = col.split(factor=0.4)
     split.column().label(text="Motion Sets:")
-    split.column().prop(props, "filter_motion_set")
+    split.column().row().prop(props, "filter_motion_set_type", text="Filter")
 
     col.template_list("ACTION_SET_UL_List", "action_set_list", bpy.data, "actions", props, "action_set_list_index", rows=5, maxrows=5)
 
@@ -2772,7 +2777,7 @@ class CCICAnimationToolsPanel(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = LINK_TAB_NAME
-    bl_options = {"DEFAULT_CLOSED"}
+    #bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
         props = vars.props()

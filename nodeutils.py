@@ -15,13 +15,12 @@
 # along with CC/iC Blender Tools.  If not, see <https://www.gnu.org/licenses/>.
 
 import bpy
-import mathutils
-
+from mathutils import Vector, Euler, Matrix, Quaternion, Color
 from . import lib, utils, vars
 
-cursor = mathutils.Vector((0,0))
-cursor_top = mathutils.Vector((0,0))
-max_cursor = mathutils.Vector((0,0))
+cursor = Vector((0,0))
+cursor_top = Vector((0,0))
+max_cursor = Vector((0,0))
 new_nodes = []
 
 
@@ -252,7 +251,10 @@ def get_node_input_color(node : bpy.types.Node, socket, default: tuple) -> tuple
     return default
 
 
-def get_node_input_vector(node : bpy.types.Node, socket, default: tuple) -> tuple:
+
+
+
+def get_node_input_vector(node : bpy.types.Node, socket, default: Vector) -> Vector:
     """Returns the node's socket or named input sockets default value
        or if linked to, the connecting node's default output value.\n
        Returns the supplied default value if node/socket is invalid."""
@@ -264,6 +266,22 @@ def get_node_input_vector(node : bpy.types.Node, socket, default: tuple) -> tupl
                 connecting_node, connecting_socket = get_node_and_socket_connected_to_input(node, socket)
                 return get_node_output_vector(connecting_node, connecting_socket, default)
             return extract_socket_vector(socket.default_value, default)
+        except: ...
+    return default
+
+
+def get_node_input_rotation(node : bpy.types.Node, socket, default: Euler) -> Euler:
+    """Returns the node's socket or named input sockets default value
+       or if linked to, the connecting node's default output value.\n
+       Returns the supplied default value if node/socket is invalid."""
+
+    socket = safe_node_input_socket(node, socket)
+    if node and socket:
+        try:
+            if socket.is_linked:
+                connecting_node, connecting_socket = get_node_and_socket_connected_to_input(node, socket)
+                return get_node_output_rotation(connecting_node, connecting_socket, default)
+            return extract_socket_rotation(socket.default_value, default)
         except: ...
     return default
 
@@ -296,7 +314,7 @@ def get_node_output_color(node, socket, default: tuple) -> tuple:
     return default
 
 
-def get_node_output_vector(node, socket, default: tuple) -> tuple:
+def get_node_output_vector(node, socket, default: Vector) -> Vector:
     """Returns the node's socket or named output sockets default value.\n
        Returns the supplied default value if node/socket is invalid."""
 
@@ -304,6 +322,18 @@ def get_node_output_vector(node, socket, default: tuple) -> tuple:
     if node and socket:
         try:
             return extract_socket_vector(socket.default_value, default)
+        except: ...
+    return default
+
+
+def get_node_output_rotation(node, socket, default: Euler) -> Euler:
+    """Returns the node's socket or named output sockets default value.\n
+       Returns the supplied default value if node/socket is invalid."""
+
+    socket = safe_node_output_socket(node, socket)
+    if node and socket:
+        try:
+            return extract_socket_rotation(socket.default_value, default)
         except: ...
     return default
 
@@ -895,12 +925,12 @@ def get_image_node_mapping(image_node):
         mapping_node = get_node_connected_to_input(image_node, "Vector")
         if mapping_node:
             if mapping_node.type == "MAPPING":
-                location = get_node_input_vector(mapping_node, "Location", (0,0,0))
-                rotation = get_node_input_vector(mapping_node, "Rotation", (0,0,0))
-                scale = get_node_input_vector(mapping_node, "Scale", (1,1,1))
+                location = get_node_input_vector(mapping_node, "Location", Vector((0,0,0)))
+                rotation = get_node_input_rotation(mapping_node, "Rotation", Euler((0,0,0)))
+                scale = get_node_input_vector(mapping_node, "Scale", Vector((1,1,1)))
             elif mapping_node.type == "GROUP": # custom mapping group
-                location = get_node_input_vector(mapping_node, "Offset", (0,0,0))
-                scale = get_node_input_vector(mapping_node, "Tiling", (1,1,1))
+                location = get_node_input_vector(mapping_node, "Offset", Vector((0,0,0)))
+                scale = get_node_input_vector(mapping_node, "Tiling", Vector((1,1,1)))
     return location, rotation, scale
 
 
@@ -1088,11 +1118,12 @@ def trace_input_value(node: bpy.types.Node, socket_trace: str, default_value: fl
 
 
 def extract_socket_value(value, default_value: float) -> float:
+    """Socket values are float"""
     try:
         if value is None:
             return default_value
         T = type(value)
-        if T is float:
+        if T is float or T is int:
             return value
         elif (T is bpy.types.bpy_prop_array or T is list or T is tuple):
             L = len(value)
@@ -1100,49 +1131,65 @@ def extract_socket_value(value, default_value: float) -> float:
                 return utils.lum(value)
             else: # vector, return magnitude
                 return utils.mag(value)
-        else:
-            return float(value)
     except Exception as e:
         utils.log_error(f"Extract Socket Value: {value}", e)
     return default_value
 
 
-def extract_socket_vector(value, default_value: tuple) -> tuple:
+def extract_socket_vector(value, default_value: Vector) -> Vector:
+    """Socket locations / scale are Vector"""
     try:
         if value is None:
             return default_value
         T = type(value)
-        if T is float:
-            return (value, value, value)
+        if T is Vector:
+            return value
         elif (T is bpy.types.bpy_prop_array or T is list or T is tuple):
             xyz = value[:3]
             if len(xyz) < 3:
                 xyz += [0]*(3 - len(xyz))
-            return tuple(xyz)
-        else:
-            v = float(value)
-            return (v, v, v)
+            return Vector(xyz)
+        if T is float:
+            return Vector((value, value, value))
+    except Exception as e:
+        utils.log_error(f"Extract Socket Vector: {value}", e)
+    return default_value
+
+
+def extract_socket_rotation(value, default_value: Euler) -> Euler:
+    """Socket rotations are Euler"""
+    try:
+        if value is None:
+            return default_value
+        T = type(value)
+        if T is Euler:
+            return value
+        if T is float or T is int:
+            return Euler((value, value, value))
+        elif (T is bpy.types.bpy_prop_array or T is list or T is tuple or T is Vector):
+            xyz = value[:3]
+            if len(xyz) < 3:
+                xyz += [0]*(3 - len(xyz))
+            return Euler(xyz)
     except Exception as e:
         utils.log_error(f"Extract Socket Vector: {value}", e)
     return default_value
 
 
 def extract_socket_color(value, default_value: tuple) -> tuple:
+    """Socket colours are bpy_prop_array[4] - RGBA"""
     try:
         if value is None:
             return default_value
         T = type(value)
-        if T is float:
+        if T is float or T is int:
             return (value, value, value, 1.0)
-        elif (T is bpy.types.bpy_prop_array or T is list or T is tuple):
+        elif (T is bpy.types.bpy_prop_array or T is list or T is tuple or T is Color):
             rgba = value[:4]
             if len(rgba) < 4:
                 rgba += [0]*(4 - len(rgba))
                 rgba[3] = 1.0
             return tuple(rgba)
-        else:
-            v = float(value)
-            return (v, v, v, 1.0)
     except Exception as e:
         utils.log_error(f"Extract Socket Color: {value}", e)
     return default_value

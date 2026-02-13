@@ -1190,7 +1190,7 @@ class CC3Import(bpy.types.Operator):
                 utils.log_timer("Done .Obj Import.")
 
             elif ImportFlags.RLX in import_flags:
-                imported = rlx.import_rlx(filepath)
+                imported = rlx.import_rlx(filepath, self.start_frame)
 
             elif ImportFlags.GLB in import_flags:
 

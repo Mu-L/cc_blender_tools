@@ -678,7 +678,7 @@ SHADER_MATRIX = [
             ["skin_unmasked_scatter_scale", 1, "", "Custom/Unmasked Scatter Scale"],
             ["skin_ao_strength", 1, "", "Pbr/AO"],
             ["skin_normal_strength", 1, "", "Pbr/Normal"],
-            ["skin_bump_strength", 0.0, "Pbr/Bump"],
+            ["skin_bump_strength", 0.0, "", "Pbr/Bump"],
             ["skin_emission_strength", 0, "", "Pbr/Glow"],
             ["skin_subsurface_falloff", (1.0, 0.112, 0.072, 1.0), "func_color_bytes", "SSS/Falloff"],
             ["skin_subsurface_radius", 1.5, "", "SSS/Radius"],

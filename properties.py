@@ -634,26 +634,42 @@ class CC3OperatorProperties(bpy.types.Operator):
 class CCICActionStore(bpy.types.PropertyGroup):
     store_id: bpy.props.StringProperty(default="")
     object: bpy.props.PointerProperty(type=bpy.types.Object)
-    action: bpy.props.PointerProperty(type=bpy.types.Action)
-    slot_id: bpy.props.StringProperty(default="")
-    slot_name: bpy.props.StringProperty(default="")
+    object_action: bpy.props.PointerProperty(type=bpy.types.Action)
+    object_slot_id: bpy.props.StringProperty(default="")
+    object_action_valid: bpy.props.BoolProperty(default=False)
+    data_action: bpy.props.PointerProperty(type=bpy.types.Action)
+    data_slot_id: bpy.props.StringProperty(default="")
+    data_action_valid: bpy.props.BoolProperty(default=False)
 
     def store(self, obj, store_id: str):
-        target = utils.get_action_target(obj)
-        if target:
-            action, slot = utils.safe_get_action_slot(target)
-            if action:
-                self.store_id = store_id
-                self.object = obj
-                self.action = action
-                self.slot_name = slot.name_display if slot else ""
-                self.slot_id = slot.identifier if slot else ""
+        self.store_id = store_id
+        self.object = obj
+        if utils.object_has_shape_keys(obj):
+            action, slot = utils.safe_get_action_slot(obj.data.shape_keys)
+        else:
+            action, slot = utils.safe_get_action_slot(obj)
+        self.object_action = action
+        self.object_slot_id = slot.identifier if slot else ""
+        self.object_action_valid = True
+        if utils.object_exists_is_light(obj) or utils.object_exists_is_camera(obj):
+            action, slot = utils.safe_get_action_slot(obj.data)
+            self.data_action = action
+            self.data_slot_id = slot.identifier if slot else ""
+            self.data_action_valid = True
 
     def restore(self):
-        target = utils.get_action_target(self.object)
-        if target and self.action:
-            slot = utils.find_action_slot(self.action, slot_name=self.slot_name, slot_id=self.slot_id)
-            utils.safe_set_action(target, self.action, slot=slot)
+        obj = self.object
+        if self.object_action_valid:
+            if utils.object_has_shape_keys(obj):
+                slot = utils.find_action_slot(self.object_action, slot_id=self.object_slot_id)
+                utils.safe_set_action(obj.data.shape_keys, self.object_action, slot=slot)
+            else:
+                slot = utils.find_action_slot(self.object_action, slot_id=self.object_slot_id)
+                utils.safe_set_action(obj, self.object_action, slot=slot)
+        if self.data_action_valid:
+            if utils.object_exists_is_light(obj) or utils.object_exists_is_camera(obj):
+                slot = utils.find_action_slot(self.data_action, slot_id=self.data_slot_id)
+                utils.safe_set_action(obj.data, self.data_action, slot=slot)
 
 
 class CC3ActionList(bpy.types.PropertyGroup):
@@ -3120,14 +3136,18 @@ class CC3ImportProps(bpy.types.PropertyGroup):
                                                    description="Motion prefix for baked NLA motions.")
     rigify_bake_motion_name: bpy.props.StringProperty(default="NLA_Bake", name="Rigify Bake Motion Name",
                                                    description="Motion name for baked NLA motions.")
-    filter_motion_set: bpy.props.BoolProperty(default=True, name="Filter",
-                                                  description="Show only motion sets compatible with the current character")
+    filter_motion_set_type: bpy.props.EnumProperty(items=[
+                        ("NONE","None","No Filter"),
+                        ("RIG","Rig","Filter for selected Rig"),
+                        ("GEN","Type","Filter for selected Rig type (Generation)"),
+                    ], default="RIG", name = "Filter",
+                       description="Motion set filter type")
 
     # Hair
 
     hair_export_group_by: bpy.props.EnumProperty(items=[
                         ("CURVE","Curve","Group by curve objects"),
-                        ("NAME","Name","Gropu by name"),
+                        ("NAME","Name","Group by name"),
                         ("NONE","Single","Don't export separate groups"),
                     ], default="CURVE", name = "Export Hair Grouping",
                        description="Export hair groups by...")
@@ -3415,10 +3435,11 @@ class CC3ImportProps(bpy.types.PropertyGroup):
         store_id = utils.generate_random_id(30)
         action_store: CCICActionStore = self.action_options.action_store.add()
         action_store.store(rig, store_id)
-        for obj in rig.children:
-            if utils.object_has_shape_keys(obj):
-                action_store: CCICActionStore = self.action_options.action_store.add()
-                action_store.store(obj, store_id)
+        if utils.object_exists_is_armature(rig):
+            for obj in rig.children:
+                if utils.object_has_shape_keys(obj):
+                    action_store: CCICActionStore = self.action_options.action_store.add()
+                    action_store.store(obj, store_id)
         return store_id
 
     def restore_actions(self, store_id: str):
@@ -3435,9 +3456,20 @@ class CC3ImportProps(bpy.types.PropertyGroup):
         action_store: CCICActionStore
         for action_store in self.action_options.action_store:
             if action_store.store_id == store_id:
-                if utils.object_exists_is_armature(action_store.object):
-                    return action_store.action
+                if (utils.object_exists_is_armature(action_store.object) or
+                    utils.object_exists_is_light(action_store.object) or
+                    utils.object_exists_is_camera(action_store.object)):
+                    return action_store.object_action
         return None
+
+    def fetch_action_stores(self, store_id: str):
+        """This returns a list of the action store Property Collection items directly"""
+        action_stores = []
+        action_store: CCICActionStore
+        for action_store in self.action_options.action_store:
+            if action_store.store_id == store_id:
+                action_stores.append(action_store)
+        return action_stores
 
     def fetch_stored_actions(self, store_id: str):
         """This returns a list of the action store Property Collection items directly"""
@@ -3445,7 +3477,10 @@ class CC3ImportProps(bpy.types.PropertyGroup):
         action_store: CCICActionStore
         for action_store in self.action_options.action_store:
             if action_store.store_id == store_id:
-                stored_actions.append(action_store)
+                if action_store.object_action:
+                    stored_actions.append(action_store.object_action)
+                if action_store.data_action:
+                    stored_actions.append(action_store.data_action)
         return stored_actions
 
     def delete_action_store(self, store_id: str):

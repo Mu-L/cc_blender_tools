@@ -1532,6 +1532,13 @@ def delete_object(obj):
             pass
 
 
+def delete_actions(actions):
+    for action in actions:
+        try:
+            bpy.data.actions.remove(action)
+        except: ...
+
+
 def get_object_tree(obj, objects = None):
     if objects is None:
         objects = []
@@ -2291,13 +2298,16 @@ def get_object_action_channelbag(obj):
     return None
 
 
-def get_action_target(obj):
-    target = None
+def get_action_targets(obj):
+    targets = []
     if object_exists_is_armature(obj):
-        target = obj
+        targets.append(obj)
     elif object_exists_is_mesh(obj):
-        target = obj.data.shape_keys
-    return target
+        targets.append(obj.data.shape_keys)
+    elif object_exists_is_light(obj) or object_exists_is_camera(obj):
+        targets.append(obj)
+        targets.append(obj.data)
+    return targets
 
 
 def index_in_collection(item, collection):

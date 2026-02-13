@@ -663,11 +663,10 @@ def get_motion_set_actions(action_or_set_id):
     return actions
 
 
-def get_motion_set_frame_range(action_or_set_id):
-    actions = get_motion_set_actions(action_or_set_id)
+def get_actions_frame_range(actions):
+    action: bpy.types.Action = None
     frame_start = None
     frame_end = None
-    action: bpy.types.Action = None
     for action in actions:
         start = action.frame_range[0]
         end = action.frame_range[1]
@@ -679,6 +678,11 @@ def get_motion_set_frame_range(action_or_set_id):
         if end > frame_end:
             frame_end = end
     return frame_start, frame_end
+
+
+def get_motion_set_frame_range(action_or_set_id):
+    actions = get_motion_set_actions(action_or_set_id)
+    return get_actions_frame_range(actions)
 
 
 def replace_motion_set(set_id, old_set_id):
@@ -1836,7 +1840,7 @@ def copy_rest_pose(src_rig, dst_rig):
     utils.restore_visible_in_scene(temp_collection)
 
 
-def bake_rig_action(src_rig, dst_rig):
+def bake_rig_action(src_rig, dst_rig, reuse_action=False):
     src_action: bpy.types.Action = utils.safe_get_action(src_rig)
     baked_action = None
 
@@ -1861,7 +1865,7 @@ def bake_rig_action(src_rig, dst_rig):
                          frame_end=end_frame,
                          only_selected=True,
                          visual_keying=True,
-                         use_current_action=True,
+                         use_current_action=reuse_action,
                          clear_constraints=False,
                          clean_curves=False,
                          bake_types={'POSE'})
@@ -3215,7 +3219,7 @@ class CCICActionImportOptions(bpy.types.Operator):
 # endregion
 
 
-def add_action_slot_channel(action, name, slot_type, reuse=False, clear=False):
+def add_action_slot_channelbag(action, name, slot_type, reuse=False, clear=False):
     if utils.B440():
         channelbags = utils.get_action_channelbags(action)
         if reuse:
@@ -3235,11 +3239,11 @@ def add_action_slot_channel(action, name, slot_type, reuse=False, clear=False):
 
 
 def add_action_key_slot_channelbag(action, obj: bpy.types.Object, reuse=False, clear=False):
-    return add_action_slot_channel(action, obj.name, "KEY", reuse=reuse, clear=clear)
+    return add_action_slot_channelbag(action, obj.name, "KEY", reuse=reuse, clear=clear)
 
 
 def add_action_ob_slot_channelbag(action, obj: bpy.types.Object, reuse=False, clear=False):
-    return add_action_slot_channel(action, obj.name, "OBJECT", reuse=reuse, clear=clear)
+    return add_action_slot_channelbag(action, obj.name, "OBJECT", reuse=reuse, clear=clear)
 
 
 def is_slotted_action(action):
@@ -3251,7 +3255,7 @@ def copy_slot_actions(src_action, dst_action, slot_type):
     for src_channel in src_channelbags:
         slot = src_channel.slot
         if slot.target_id_type == slot_type:
-            dst_slot, dst_channel = add_action_slot_channel(dst_action, slot.name_display, slot_type)
+            dst_slot, dst_channel = add_action_slot_channelbag(dst_action, slot.name_display, slot_type)
             for fcurve in src_channel.fcurves:
                 copy_fcurve_to_channel(fcurve, dst_channel)
 
@@ -3362,7 +3366,6 @@ def fetch_action_curve_database(source_action):
                     frame = fcurve.keyframe_points[0].co.x
                     if first_frame is None or frame < first_frame:
                         first_frame = frame
-    print(f"FIRST FRAME {first_frame}")
     database["first_frame"] = first_frame
     return database
 
@@ -3466,7 +3469,7 @@ def load_slotted_action(rig, action: bpy.types.Action, move=False, temp=None):
         if unused_ids:
 
             # add slot for unused bone fcurves
-            rig_slot, rig_channel = add_action_slot_channel(action, "Unused Object", "OBJECT", reuse=True, clear=True)
+            rig_slot, rig_channel = add_action_slot_channelbag(action, "Unused Object", "OBJECT", reuse=True, clear=True)
 
             # add unused fcurves
             for id in unused_ids:
@@ -3499,7 +3502,7 @@ def load_slotted_action(rig, action: bpy.types.Action, move=False, temp=None):
         if not prefs.action_add_key_slots_per_obj:
 
             # add shape key slot/channel for all mesh objects
-            key_slot, key_channel = add_action_slot_channel(action, "All Keys", "KEY", reuse=True, clear=True)
+            key_slot, key_channel = add_action_slot_channelbag(action, "All Keys", "KEY", reuse=True, clear=True)
 
             # done id's across all meshes
             done_ids = set()
@@ -3607,7 +3610,7 @@ def load_slotted_action(rig, action: bpy.types.Action, move=False, temp=None):
         if unused_ids:
 
             # add slot/channel for unused shape key fcuves
-            key_slot, key_channel = add_action_slot_channel(action, "Unused Keys", "KEY", reuse=True, clear=True)
+            key_slot, key_channel = add_action_slot_channelbag(action, "Unused Keys", "KEY", reuse=True, clear=True)
 
             # add unused shape key fcurves to action
             for id in unused_ids:
@@ -3761,7 +3764,7 @@ def load_separate_actions(rig: bpy.types.Object, action: bpy.types.Action, move=
             rig_action["rl_unused_action"] = True
 
             # add slot and motion set data
-            rig_slot, rig_channel = add_action_slot_channel(rig_action, "Unused Object", "OBJECT", reuse=True, clear=True)
+            rig_slot, rig_channel = add_action_slot_channelbag(rig_action, "Unused Object", "OBJECT", reuse=True, clear=True)
             add_motion_set_data(rig_action, set_id, set_generation, arm_id=rl_arm_id, slotted=False)
             rig_action.use_fake_user = use_fake_user
 
@@ -3808,7 +3811,7 @@ def load_separate_actions(rig: bpy.types.Object, action: bpy.types.Action, move=
 
             # add slot and motion set data
             add_motion_set_data(key_action, set_id, set_generation, obj_id="ALL", slotted=False)
-            key_slot, key_channel = add_action_slot_channel(key_action, "Key", "KEY", reuse=True, clear=True)
+            key_slot, key_channel = add_action_slot_channelbag(key_action, "Key", "KEY", reuse=True, clear=True)
             key_action.use_fake_user = use_fake_user
 
             # if this is a temporary action, store the action it replaced
@@ -3945,7 +3948,7 @@ def load_separate_actions(rig: bpy.types.Object, action: bpy.types.Action, move=
             key_action["rl_unused_action"] = True
 
             # add slot and motion set data
-            key_slot, key_channel = add_action_slot_channel(key_action, "Unused Keys", "KEY", reuse=True, clear=True)
+            key_slot, key_channel = add_action_slot_channelbag(key_action, "Unused Keys", "KEY", reuse=True, clear=True)
             add_motion_set_data(key_action, set_id, set_generation, obj_id="UNUSED", slotted=False)
             key_action.use_fake_user = use_fake_user
 
@@ -4247,7 +4250,7 @@ def shift_actions(action, to_frame, frame_start = 1):
         reset_fcurve_interpolation(fcurve)
 
 
-def mix_actions(rig, obj, src_action, src_slot, dst_action, dst_slot, frame_start, frame_end):
+def mix_actions(src_action, src_slot, dst_action, dst_slot, frame_start, frame_end):
     src_channelbag = utils.get_action_channelbag(src_action, src_slot)
     dst_channelbag = utils.get_action_channelbag(dst_action, dst_slot)
 
@@ -4287,22 +4290,6 @@ def mix_actions(rig, obj, src_action, src_slot, dst_action, dst_slot, frame_star
     # for src curves not in the dst action, copy the fcurve in for that range
     for src_curve in new_src:
         copy_fcurve_to_channel(src_curve, dst_channelbag)
-
-
-def mix_actions_old(src_action, dst_action, frame_start):
-    src_fcurves = utils.get_action_fcurves(src_action)
-    dst_fcurves = utils.get_action_fcurves(dst_action)
-    fcurve_map = {}
-    for i, src_curve in enumerate(src_fcurves):
-        for j, dst_curve in enumerate(dst_fcurves):
-            if src_curve.data_path == dst_curve.data_path:
-                fcurve_map[i] = j
-                break
-    for i, src_curve in enumerate(src_fcurves):
-        if i in fcurve_map:
-            j = fcurve_map[i]
-            dst_curve = dst_fcurves[j]
-            mix_fcurve(src_curve, dst_curve, frame_start)
 
 
 KEYFRAME_DATA_SIZE = {
@@ -4385,76 +4372,109 @@ def mix_fcurve(src_curve: bpy.types.FCurve, dst_curve: bpy.types.FCurve, frame_s
     dst_curve.update()
 
 
-def mix_motion_set(rig, set_id, action_store_id, frame_start, frame_end):
+def mix_motion_set(rig, action_store_id, frame_start, frame_end):
     props = vars.props()
-    stored_actions = props.fetch_stored_actions(action_store_id)
-    stored_rig_action = props.fetch_stored_rig_action(action_store_id)
+    stored_main_action = props.fetch_stored_rig_action(action_store_id)
     done = False
     objects = [rig]
-    for child in rig.children:
-        if utils.object_exists_is_mesh(child) and utils.object_has_shape_keys(child):
-            objects.append(child)
+    if utils.object_exists_is_armature(rig):
+        for child in rig.children:
+            if utils.object_exists_is_mesh(child) and utils.object_has_shape_keys(child):
+                objects.append(child)
+
+    mix_pairs = []
     for obj in objects:
-        target = utils.get_action_target(obj)
-        new_action = target.animation_data.action
-        new_slot = target.animation_data.action_slot
+        action_store = props.get_action_store_for(action_store_id, obj)
+        if utils.object_exists_is_armature(obj):
+            if obj.animation_data:
+                mix_pairs.append((obj, action_store, "OBJECT",
+                                  obj.animation_data.action,
+                                  obj.animation_data.action_slot,
+                                  action_store.object_action if action_store else None,
+                                  action_store.object_slot_id if action_store else None))
+        elif utils.object_exists_is_mesh(obj):
+            if obj.data.shape_keys.animation_data:
+                mix_pairs.append((obj, action_store, "KEY",
+                                  obj.data.shape_keys.animation_data.action,
+                                  obj.data.shape_keys.animation_data.action_slot,
+                                  action_store.object_action if action_store else None,
+                                  action_store.object_slot_id if action_store else None))
+        elif utils.object_exists_is_light(obj) or utils.object_exists_is_camera(obj):
+            if obj.animation_data:
+                mix_pairs.append((obj, action_store, "OBJECT",
+                                  obj.animation_data.action,
+                                  obj.animation_data.action_slot,
+                                  action_store.object_action if action_store else None,
+                                  action_store.object_slot_id if action_store else None))
+            if obj.data.animation_data:
+                mix_pairs.append((obj, action_store, "LIGHT" if utils.object_exists_is_light(obj) else "CAMERA",
+                                  obj.data.animation_data.action,
+                                  obj.data.animation_data.action_slot,
+                                  action_store.data_action if action_store else None,
+                                  action_store.data_slot_id if action_store else None))
+
+    for obj, action_store, slot_type, new_action, new_slot, old_action, old_slot_id in mix_pairs:
         if new_action:
-            action_store = props.get_action_store_for(action_store_id, obj)
-            valid_slot = (not utils.B440() or action_store.slot_id)
-            if action_store and valid_slot:
+            print(new_action.name, slot_type, old_action.name, "OLD_ID", old_slot_id)
+            valid_slot = (not utils.B440() or old_slot_id)
+            if old_action and valid_slot:
                 # mix new action slot over old action slot
-                old_action = action_store.action
-                old_slot_name = action_store.slot_name
-                old_slot_id = action_store.slot_id
-                # if the old slot was removed, try the object name?
-                if not old_slot_name:
-                    old_slot_name = obj.name
-                old_slot = utils.find_action_slot(old_action, slot_name=old_slot_name, slot_id=old_slot_id)
-                if old_action:
-                    mix_actions(rig, obj, new_action, new_slot, old_action, old_slot, frame_start, frame_end)
-                    done = True
-                else:
-                    utils.log_error("action store invalid!")
+                old_slot = utils.find_action_slot(old_action, slot_id=old_slot_id)
+                mix_actions(new_action, new_slot, old_action, old_slot, frame_start, frame_end)
+                done = True
             else:
-                copy_channels_to_rig_motion(rig, obj, new_action, new_slot, stored_rig_action)
-                # invalidate the action store (if there is one) to prevent it restoring an action (with the wrong slot)
+                copy_channels_to_rig_motion(rig, obj, slot_type, new_action, new_slot, stored_main_action)
+                # invalidate the actions in the store (if there is one) to prevent it restoring an action (with the wrong slot)
                 if action_store:
-                    action_store.action = None
+                    if slot_type in ["LIGHT", "CAMERA"]:
+                        action_store.data_action_valid = False
+                    else:
+                        action_store.object_action_valid = False
+
 
     if done:
         props.restore_actions(action_store_id)
         #delete_motion_set(set_id)
 
 
-def add_slot_channels_to_rig_motion(rig, obj, action, reuse=False, clear=False):
+def add_slot_channels_to_rig_motion(rig, obj, slot_type, action, reuse=False, clear=False):
     prefs = vars.prefs()
 
-    slot_type = "KEY" if utils.object_exists_is_mesh(obj) else "OBJECT"
+    is_rig = utils.object_exists_is_armature(rig)
 
     if prefs.use_action_slots():
 
         # add slot channel for src action slot channel
-        slot, channel = add_action_slot_channel(action, obj.name, slot_type, reuse=reuse, clear=clear)
+        slot, channel = add_action_slot_channelbag(action, obj.name, slot_type, reuse=reuse, clear=clear)
 
     else:
 
-        # determine motion set info
-        rig_id = get_rig_id(rig)
-        obj_id = get_obj_id(obj)
-        set_id = utils.get_prop(action, "rl_set_id")
-        set_generation = utils.get_prop(action, "rl_set_generation")
-        motion_prefix = get_motion_prefix(action)
-        motion_id = get_motion_id(action)
-        use_fake_user = action.use_fake_user
+        if is_rig:
+            # determine motion set info
+            rig_id = get_rig_id(rig)
+            obj_id = get_obj_id(obj)
+            set_id = utils.get_prop(action, "rl_set_id")
+            set_generation = utils.get_prop(action, "rl_set_generation")
+            motion_prefix = get_motion_prefix(action)
+            motion_id = get_motion_id(action)
+            use_fake_user = action.use_fake_user
 
-        # generate a slot channel for the object
-        if set_id:
-            if slot_type == "OBJECT":
-                action_name = make_armature_action_name(rig_id, motion_id, motion_prefix)
-            else:
-                action_name = make_key_action_name(rig_id, motion_id, obj_id, motion_prefix)
+            # generate a slot channel for the object
+            if set_id:
+                if slot_type == "OBJECT":
+                    action_name = make_armature_action_name(rig_id, motion_id, motion_prefix)
+                elif slot_type == "KEY":
+                    action_name = make_key_action_name(rig_id, motion_id, obj_id, motion_prefix)
+
         else:
-            action_name = action.name
+            set_id = None
+            motion_id = get_motion_id(action, f"{utils.datetimes()}")
+            motion_prefix = get_motion_prefix(action)
+
+            if slot_type == "OBJECT":
+                action_name = generate_action_name(obj.name, "O", "", motion_id, motion_prefix)
+            if slot_type == "LIGHT" or slot_type == "CAMERA":
+                action_name = generate_action_name(obj.name, slot_type[0], "", motion_id, motion_prefix)
 
         # make a new dst_action for this object
         if reuse and action_name in bpy.data.actions:
@@ -4465,36 +4485,86 @@ def add_slot_channels_to_rig_motion(rig, obj, action, reuse=False, clear=False):
         if clear:
             utils.clear_action(action)
         action.use_fake_user = use_fake_user
+
         if set_id:
             add_motion_set_data(action, set_id, set_generation, obj_id=obj_id, slotted=False)
 
         # add slot and motion set data
         if slot_type == "OBJECT":
             slot, channel = add_action_ob_slot_channelbag(action, rig, reuse=True, clear=True)
-        else:
+        elif slot_type == "KEY":
             slot, channel = add_action_key_slot_channelbag(action, obj, reuse=True, clear=True)
+        elif slot_type == "LIGHT" or slot_type == "CAMERA":
+            slot, channel = add_action_slot_channelbag(action, obj.name, slot_type, reuse=True, clear=True)
 
     return action, slot, channel
 
 
-def copy_channels_to_rig_motion(rig, obj, src_action, src_slot, dst_action):
+def copy_channels_to_rig_motion(rig, obj, slot_type, src_action, src_slot, dst_action):
     src_channelbag = utils.get_action_channelbag(src_action, src_slot)
-    dst_action, dst_slot, dst_channel = add_slot_channels_to_rig_motion(rig, obj, dst_action, reuse=True, clear=True)
+    dst_action, dst_slot, dst_channel = add_slot_channels_to_rig_motion(rig, obj, slot_type, dst_action, reuse=True, clear=True)
 
     # copy the source fcurves into the dst_channel
     for fcurve in src_channelbag.fcurves:
         copy_fcurve_to_channel(fcurve, dst_channel)
 
-    if utils.object_exists_is_mesh(obj) and dst_slot.target_id_type == "KEY":
+    print("--->",dst_action, dst_slot, slot_type)
+    if slot_type == "KEY":
         utils.safe_set_action(obj.data.shape_keys, dst_action, slot=dst_slot)
-    elif dst_slot.target_id_type == "OBJECT":
+    elif slot_type == "OBJECT":
         utils.safe_set_action(obj, dst_action, slot=dst_slot)
+    elif slot_type == "LIGHT" or slot_type == "CAMERA":
+        utils.safe_set_action(obj.data, dst_action, slot=dst_slot)
     else:
         utils.log_error(f"Unknown slot target for {dst_action} {dst_slot} {dst_channel}")
         dst_action = None
         dst_slot = None
 
     return dst_action, dst_slot
+
+
+def finalize_rlx_import(obj, actions, action_store_id, action_mode, frame_start=None, frame_end=None):
+    props = vars.props()
+
+    motion_action = actions[0] if actions else None
+    motion_start_frame, motion_end_frame = get_actions_frame_range(actions)
+    if frame_start is None:
+        frame_start = motion_start_frame
+    if frame_end is None:
+        frame_end = motion_end_frame
+
+    utils.log_info("Finalize RLX import:")
+    utils.log_info(f"motion actions: {[a.name for a in actions]}")
+    utils.log_info(f"start frame: {frame_start}")
+    utils.log_info(f"end frame: {frame_end}")
+
+    if actions:
+        stored_actions = props.fetch_stored_actions(action_store_id)
+
+        # now decide what to do with the actions based on the action_mode and frame_mode
+
+        if action_mode == "NEW":
+            # add new, do nothing else
+            utils.log_info(f"Action Mode NEW: Loaded new motion set: {motion_action.name}")
+
+        elif not stored_actions:
+            # no existing actions to replace or blend, do nothing else
+            utils.log_info(f"No current motion: Loaded new motion set: {motion_action.name}")
+
+        elif action_mode == "REPLACE":
+            # get the stored motion set data (and name) and apply it to the new motion_action
+            old_action = stored_actions[0]
+            utils.log_info(f"Action Mode REPLACE: updating motion set to: {old_action.name}")
+            stored_actions = props.fetch_stored_actions(action_store_id)
+            utils.delete_actions(stored_actions)
+
+        elif action_mode == "BLEND":
+            old_action = stored_actions[0]
+            utils.log_info(f"Action Mode BLEND: blending motion set: {motion_action.name} over existing motion: {old_action.name}")
+            mix_motion_set(obj, action_store_id, frame_start, frame_end)
+            utils.delete_actions(actions)
+
+        props.delete_action_store(action_store_id)
 
 
 def finalize_motion_import(rig, motion_action, action_store_id, action_mode, frame_start=None, frame_end=None):
@@ -4527,16 +4597,17 @@ def finalize_motion_import(rig, motion_action, action_store_id, action_mode, fra
 
         elif action_mode == "REPLACE":
             # get the stored motion set data (and name) and apply it to the new motion_action
-            old_action = stored_actions[0].action
+            old_action = stored_actions[0]
             old_set_id = get_motion_set_ids(old_action)[0]
-            utils.log_info(f"Action Mode REPLACE: updating motion set to: {old_action.name} / ({old_set_id})")
-            replace_motion_set(set_id, old_set_id)
+            utils.log_info(f"Action Mode REPLACE: deleting old motion set: {old_action.name} / ({old_set_id})")
+            #replace_motion_set(set_id, old_set_id)
+            delete_motion_set(old_set_id)
 
         elif action_mode == "BLEND":
-            old_action = stored_actions[0].action
+            old_action = stored_actions[0]
             old_set_id = get_motion_set_ids(old_action)[0]
             utils.log_info(f"Action Mode BLEND: blending motion set: {motion_action.name} / ({set_id}) over existing motion: {old_action.name} / ({old_set_id})")
-            mix_motion_set(rig, set_id, action_store_id, frame_start, frame_end)
+            mix_motion_set(rig, action_store_id, frame_start, frame_end)
             delete_motion_set(set_id)
 
         props.delete_action_store(action_store_id)

@@ -41,6 +41,8 @@ Links
     - Refactoring will also strip key-frames from bones and keys that have drivers.
     - Unused bones and shape-key tracks will be placed into unassigned slots or actions.
     - Motion imports set the preview range.
+- Function to clean up duplicate keyframes.
+- Function to add a new empty motion set.
 - Add empty keyframes for non-animated shape keys (optional).
 - Clean empty mesh shape-keys and vertex groups on import (optional).
 - Motion, Pose and Sequence action import options:
@@ -56,7 +58,7 @@ Links
     - Can be enabled / disabled with the Rigify UI controls.
 - Standard eyelash disabled when HD Eyelash detected.
 - Fix to Facerig following root position.
-- Fix to shape key export baking.
+- Fix to shape key baking on export.
 - Fix to bad vertex weights when skinning the rigify face rig on SubD 1/2 characters.
 - Fix to material merge (InstaLod) character detection.
 - Fix to baking node socket strength values from Color/Vector inputs.

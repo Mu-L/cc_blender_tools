@@ -837,11 +837,7 @@ def get_datalink_rig_action(rig, motion_id=None, slotted=False):
         motion_id = "DataLink"
     rig_id = rigutils.get_rig_id(rig)
     action_name = rigutils.make_armature_action_name(rig_id, motion_id, LINK_DATA.motion_prefix, slotted=slotted)
-    if action_name in bpy.data.actions:
-        action = bpy.data.actions[action_name]
-    else:
-        action = bpy.data.actions.new(action_name)
-    utils.clear_action(action)
+    action = bpy.data.actions.new(action_name)
     slot, channel = rigutils.add_action_ob_slot_channelbag(action, rig)
     utils.safe_set_action(rig, action, slot=slot)
     action.use_fake_user = LINK_DATA.use_fake_user
@@ -1005,13 +1001,10 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
                         else:
                             action_name = rigutils.make_key_action_name(rig_id, motion_id, obj_id, LINK_DATA.motion_prefix)
                             utils.log_info(f"Preparing shape key action: {action_name} / {num_expressions}+{num_visemes} shape keys")
-                            if action_name in bpy.data.actions:
-                                action = bpy.data.actions[action_name]
-                            else:
-                                action = bpy.data.actions.new(action_name)
+                            action = bpy.data.actions.new(action_name)
+                            slot, channel = rigutils.add_action_key_slot_channelbag(action, obj)
                             rigutils.add_motion_set_data(action, set_id, set_generation, obj_id=obj_id)
-                            utils.clear_action(action)
-                            utils.safe_set_action(obj.data.shape_keys, action)
+                            utils.safe_set_action(obj.data.shape_keys, action, slot=slot)
                             action.use_fake_user = LINK_DATA.use_fake_user
                     # remove actions from non sequence objects
                     for obj in none_objects:
@@ -1385,7 +1378,7 @@ def write_sequence_actions(actor: LinkActor, num_frames, start_frame):
                             write_action_cache_curve(key_action, viseme_cache, viseme_name,
                                                      key.path_from_id("value"), num_frames, "Viseme",
                                                      slot=key_slot)
-                    utils.safe_set_action(obj.data.shape_keys, key_action, slot=key_slot) # re-apply action to fix slot
+                    #utils.safe_set_action(obj.data.shape_keys, key_action, slot=key_slot) # re-apply action to fix slot
                     key_actions.append(key_action)
 
             # remove actions from non sequence objects

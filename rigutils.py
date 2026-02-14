@@ -3178,8 +3178,9 @@ class CCICActionImportOptions(bpy.types.Operator):
         column.label(text="Preferences:")
         row = column.row()
         grid = row.grid_flow(row_major=True, columns=2)
-        grid.prop(prefs, "action_use_action_slots")
-        grid.prop(prefs, "action_add_key_slots_per_obj")
+        if utils.B440():
+            grid.prop(prefs, "action_use_action_slots")
+            grid.prop(prefs, "action_add_key_slots_per_obj")
         #grid.prop(prefs, "action_clean_actions")
         grid.prop(prefs, "action_add_empty_key_channels")
 
@@ -4417,6 +4418,21 @@ def mix_fcurve(src_curve: bpy.types.FCurve, dst_curve: bpy.types.FCurve, frame_s
     dst_curve.update()
 
 
+def target_action(target):
+    try:
+        return target.animation_data.action
+    except: ...
+    return None
+
+
+def target_slot(target):
+    try:
+        if utils.B440():
+            return target.animation_data.action_slot
+    except: ...
+    return None
+
+
 def mix_motion_set(rig, action_store_id, frame_start, frame_end):
     props = vars.props()
     stored_main_action = props.fetch_stored_rig_action(action_store_id)
@@ -4433,28 +4449,28 @@ def mix_motion_set(rig, action_store_id, frame_start, frame_end):
         if utils.object_exists_is_armature(obj):
             if obj.animation_data:
                 mix_pairs.append((obj, action_store, "OBJECT",
-                                  obj.animation_data.action,
-                                  obj.animation_data.action_slot,
+                                  target_action(obj),
+                                  target_slot(obj),
                                   action_store.object_action if action_store else None,
                                   action_store.object_slot_id if action_store else None))
         elif utils.object_exists_is_mesh(obj):
             if obj.data.shape_keys.animation_data:
                 mix_pairs.append((obj, action_store, "KEY",
-                                  obj.data.shape_keys.animation_data.action,
-                                  obj.data.shape_keys.animation_data.action_slot,
+                                  target_action(obj.data.shape_keys),
+                                  target_slot(obj.data.shape_keys),
                                   action_store.object_action if action_store else None,
                                   action_store.object_slot_id if action_store else None))
         elif utils.object_exists_is_light(obj) or utils.object_exists_is_camera(obj):
             if obj.animation_data:
                 mix_pairs.append((obj, action_store, "OBJECT",
-                                  obj.animation_data.action,
-                                  obj.animation_data.action_slot,
+                                  target_action(obj),
+                                  target_slot(obj),
                                   action_store.object_action if action_store else None,
                                   action_store.object_slot_id if action_store else None))
             if obj.data.animation_data:
                 mix_pairs.append((obj, action_store, "LIGHT" if utils.object_exists_is_light(obj) else "CAMERA",
-                                  obj.data.animation_data.action,
-                                  obj.data.animation_data.action_slot,
+                                  target_action(obj.data),
+                                  target_slot(obj.data),
                                   action_store.data_action if action_store else None,
                                   action_store.data_slot_id if action_store else None))
 

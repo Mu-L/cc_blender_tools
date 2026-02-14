@@ -713,7 +713,7 @@ def make_datalink_import_rig(actor: LinkActor, objects: list):
     return datalink_rig
 
 
-def remove_datalink_import_rig(actor: LinkActor, apply_contraints=False):
+def remove_datalink_import_rig(actor: LinkActor, apply_constraints=False):
     if actor:
         chr_cache = actor.get_chr_cache()
         chr_rig = actor.get_armature()
@@ -721,7 +721,7 @@ def remove_datalink_import_rig(actor: LinkActor, apply_contraints=False):
         RV = utils.store_render_visibility_state(chr_rig)
         utils.unhide(chr_rig)
 
-        if apply_contraints and chr_rig:
+        if apply_constraints and chr_rig:
             if utils.set_active_object(chr_rig):
                 if utils.pose_mode_to(chr_rig):
                     action, slot = utils.safe_get_action_slot(chr_rig)
@@ -748,7 +748,7 @@ def remove_datalink_import_rig(actor: LinkActor, apply_contraints=False):
             utils.delete_armature_object(chr_cache.rig_datalink_rig)
             chr_cache.rig_datalink_rig = None
 
-        if apply_contraints and chr_rig:
+        if apply_constraints and chr_rig:
             if utils.set_active_object(chr_rig):
                 if utils.pose_mode_to(chr_rig):
                     bones.paste_pose(chr_rig, pose)
@@ -3582,7 +3582,8 @@ class LinkService():
                 if LINK_DATA.set_keyframes:
                     write_sequence_actions(actor, 1, opt_start_frame)
                 if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
-                    remove_datalink_import_rig(actor, apply_contraints=not LINK_DATA.set_keyframes)
+                    #remove_datalink_import_rig(actor, apply_contraints=not LINK_DATA.set_keyframes)
+                    disable_datalink_import_rig(actor, apply_contraints=not LINK_DATA.set_keyframes)
 
             if actor.get_type() == "PROP":
                 rigutils.update_prop_rig(actor.get_armature())
@@ -3746,7 +3747,7 @@ class LinkService():
             if LINK_DATA.set_keyframes:
                 write_sequence_actions(actor, num_frames, opt_start_frame)
             if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
-                remove_datalink_import_rig(actor, apply_contraints=not LINK_DATA.set_keyframes)
+                remove_datalink_import_rig(actor, apply_constraints=not LINK_DATA.set_keyframes)
             if actor.get_type() == "PROP":
                 rigutils.update_prop_rig(actor.get_armature())
             elif actor.get_type() == "AVATAR":

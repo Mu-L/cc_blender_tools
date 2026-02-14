@@ -4581,6 +4581,12 @@ def finalize_rlx_import(obj, actions, action_store_id, action_mode, frame_start=
     utils.log_info(f"start frame: {frame_start}")
     utils.log_info(f"end frame: {frame_end}")
 
+    if frame_start is None or frame_end is None:
+        utils.log_error(f"Unable to fetch frame range from actions!: {actions}")
+        props.restore_actions(action_store_id)
+        props.delete_action_store(action_store_id)
+        return
+
     if actions:
         stored_actions = props.fetch_stored_actions(action_store_id)
 
@@ -4623,6 +4629,12 @@ def finalize_motion_import(rig, motion_action, action_store_id, action_mode, fra
     utils.log_info(f"motion action: {motion_action.name}")
     utils.log_info(f"start frame: {frame_start}")
     utils.log_info(f"end frame: {frame_end}")
+
+    if frame_start is None or frame_end is None:
+        utils.log_error(f"Unable to fetch frame range from action!: {motion_action}")
+        props.restore_actions(action_store_id)
+        props.delete_action_store(action_store_id)
+        return
 
     if motion_action:
         set_id = get_motion_set_ids(motion_action)[0]

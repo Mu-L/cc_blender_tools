@@ -100,7 +100,7 @@ def reset_rigify():
 def reset_datalink():
     prefs: CC3ToolsAddonPreferences = vars.prefs()
     prefs.datalink_auto_start = False
-    prefs.datalink_frame_sync = False
+    prefs.datalink_frame_sync = True
     prefs.datalink_preview_shape_keys = True
     prefs.datalink_match_client_rate = True
     prefs.datalink_retarget_prop_actions = True

@@ -3158,7 +3158,7 @@ class CCICActionImportOptions(bpy.types.Operator):
         action_text = {
             "NEW": "New",
             "REPLACE": "Replace",
-            "BLEND": "Blend",
+            "BLEND": "Overwrite",
         }
         frame_text = {
             "START": "Start",

@@ -42,11 +42,15 @@ Links
     - Unused bones and shape-key tracks will be placed into unassigned slots or actions.
     - Motion imports set the preview range.
 - Add empty keyframes for non-animated shape keys (optional).
-- Clean empty shape-keys and vertex groups on import (optional).
-- Motion, Pose and Sequence import options:
-    - New - add new motion for the character.
-    - Replace - replace existing motion.
-    - Blend - Overwrite keyframes of existing animation with the imported motion.
+- Clean empty mesh shape-keys and vertex groups on import (optional).
+- Motion, Pose and Sequence action import options:
+    - New - Add new motion for the character.
+    - Replace - Replace existing motion.
+    - Overwrite - Overwrite keyframes of existing animation with the imported motion.
+- Motion, Pose and Sequence frame import options:
+    - Start - Import animations to frame 1.
+    - Current - Import animations to the current frame in the scene.
+    - Match - Import animations to the same frames as in CC / iClone (+1 for Blender)
 - Rig drivers add missing expression blendshapes.
 - FaceRig collection uses Rigify Face collection.
     - Can be enabled / disabled with the Rigify UI controls.

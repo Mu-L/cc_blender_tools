@@ -697,7 +697,7 @@ class CCICActionOptions(bpy.types.PropertyGroup):
     action_mode: bpy.props.EnumProperty(items=[
                         ("NEW","New","Import actions as a new set of actions and keep the existing actions"),
                         ("REPLACE","Replace","Import new actions to replace the existing actions"),
-                        ("BLEND","Blend","Import the new actions into the existing actions keeping the keyframes not overwritten by the import"),
+                        ("BLEND","Overwrite","Import the new actions into the existing actions keeping the keyframes not overwritten by the import"),
                     ], default="NEW", name = "Import Action Mode")
     frame_mode: bpy.props.EnumProperty(items=[
                         ("START","Start","Import keyframes into Blender starting at the start frame"),

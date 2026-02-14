@@ -1228,9 +1228,14 @@ FACE_TEST_SHAPEKEYS = [
     "Eye_Wide_L", "Eye_Wide_R", "Eye_Blink_L", "Eye_Blink_R",
     "Nose_Scrunch", "Nose_Flank_Raise_L", "Nose_Flank_Raise_R",
     "Mouth_Smile_L", "Mouth_Smile_R", "Mouth_Open",
-    "Brow_Raise_L", "Brow_Raise_R",
+    "Brow_Raise_L", "Brow_Raise_R", "Brow_Drop_L", "Brow_Drop_R",
     "Cheek_Blow_L", "Cheek_Blow_R",
     "Tongue_In", "Tongue_Up", "V_Open", "V_Tongue_up",
+    "Eye_Look_Up_L", "Eye_Look_Up_R",
+    "Jaw_Clench_L", "Jaw_Clench_R",
+    "Mouth_Funnel_UL", "Mouth_Funnel_UR",
+    "A01_Brow_Inner_Up", "A06_Eye_Look_Up_Left",
+    "A15_Eye_Blink_Right", "A25_Jaw_Open", "A37_Mouth_Close",
 ]
 
 
@@ -1240,7 +1245,7 @@ CC3_BONE_NAMES = [
 ]
 
 ACTOR_CORE_BONE_NAMES = [
-    "RL_BoneRoot", "CC_Base_Hip", "CC_Base_FacialBone"
+    ["RL_BoneRoot", "root"], "CC_Base_Hip", "CC_Base_FacialBone"
 ]
 
 
@@ -1269,7 +1274,7 @@ RIGIFY_BONE_NAMES = [
 ]
 
 # bone names to test for to see if armature or action is for a rigify rig
-RL_RIGIFY_BONE_NAMES = [
+RIGIFY_PLUS_BONE_NAMES = [
     "MCH-torso.parent", "ORG-spine", "spine_fk", "DEF-elbow_share.L", "DEF-elbow_share.R"
 ]
 

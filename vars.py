@@ -18,11 +18,11 @@
 
 import bpy
 
-VERSION_STRING = "v2.3.4"
+VERSION_STRING = "v2.4.0"
 DEV = False
 #DEV = True
 PLUGIN_COMPATIBLE = [
-    "2.3.4",
+    "2.4.0",
 ]
 
 def set_version_string(bl_info):
@@ -42,6 +42,11 @@ def props():
     from . properties import CC3ImportProps
     res: CC3ImportProps = getattr(bpy.context.scene, "CC3ImportProps", None)
     return res
+
+def is_chr_cache(cc):
+    from . properties import CC3CharacterCache
+    T = type(cc)
+    return T is CC3CharacterCache
 
 def link_props():
     from . properties import CCICLinkProps

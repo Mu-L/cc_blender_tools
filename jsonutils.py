@@ -212,6 +212,16 @@ def set_facial_profile_categories_json(json_data, character_id, categories_json)
         return False
 
 
+def has_node_type(chr_json, node_type):
+    meshes_json = chr_json["Meshes"]
+    for obj_name, obj_json in meshes_json.items():
+        if obj_json and "Materials" in obj_json:
+            for mat_name, mat_json in obj_json["Materials"].items():
+                if "Node Type" in mat_json and mat_json["Node Type"] == node_type:
+                    return True
+    return False
+
+
 def get_object_json(chr_json, obj):
     if not chr_json:
         return None
@@ -312,6 +322,10 @@ def get_material_json(obj_json, material):
     except:
         utils.log_warn("Failed to get material Json data!")
         return None
+
+
+def get_material_node_type(mat_json: dict):
+    return mat_json.get("Node Type", None)
 
 
 def get_material_json_key(obj_json, mat_json):
@@ -433,10 +447,7 @@ def get_pbr_var(mat_json, var_name, paths):
         return None
     try:
         tex_json = mat_json["Textures"][var_name]
-        if len(paths) == 2 and var_name == "Displacement":
-            return (tex_json.get("Multiplier", 1.0) *
-                    tex_json.get("Strength", 100.0) / 100.0)
-        elif len(paths) == 3:
+        if len(paths) == 3:
             return tex_json.get(paths[2], 1.0)
         else:
             return tex_json.get("Strength", 100.0) / 100.0

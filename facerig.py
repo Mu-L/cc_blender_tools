@@ -18,7 +18,7 @@ import bpy
 import math, os, random
 from . import facerig_data, lib, utils, vars
 from . import drivers, bones
-from . import rigutils
+from . import rigutils, meshutils
 from mathutils import Vector, Matrix, Quaternion
 
 
@@ -144,6 +144,11 @@ def get_facerig_config(chr_cache):
     elif facial_profile == "MH":
         return facerig_data.FACERIG_MH_CONFIG
     return None
+
+
+def is_ccic_240_rig(rig):
+    result = bones.is_bone_in_collections(rig, "facerig", ["Face"])
+    return result
 
 
 def build_facerig(chr_cache, rigify_rig, meta_rig, cc3_rig):
@@ -315,13 +320,19 @@ def build_facerig(chr_cache, rigify_rig, meta_rig, cc3_rig):
 
         bones.add_bone_collection(rigify_rig, "Face (Expressions)", "Face", color_set="CUSTOM", custom_color=chr_cache.rigify_face_control_color, lerp=0)
         bones.add_bone_collection(rigify_rig, "Face (UI)", "UI", color_set="CUSTOM", custom_color=(1,1,1))
-        bones.set_bone_collection_visibility(rigify_rig, "Face (Expressions)", 22, True)
-        bones.set_bone_collection_visibility(rigify_rig, "Face (UI)", 23, True)
+        bones.move_bone_collection(rigify_rig, "Face (Primary)", "Face (Secondary)")
+        bones.move_bone_collection(rigify_rig, "Face", "Face (Primary)")
+        exp_ui_vis = False if utils.B400() else True
+        bones.set_bone_collection_visibility(rigify_rig, "Face (Expressions)", 22, exp_ui_vis)
+        bones.set_bone_collection_visibility(rigify_rig, "Face (UI)", 23, exp_ui_vis)
 
         bones.set_bone_collection(rigify_rig, "MCH-jaw_move", "MCH", None, 30)
         bones.set_bone_collection(rigify_rig, "MCH-facerig", "MCH", None, 30)
         bones.set_bone_collection(rigify_rig, "MCH-facerig_controls", "MCH", None, 30)
         bones.set_bone_collection(rigify_rig, "MCH-facerig_parent", "MCH", None, 30)
+        bones.set_bone_collection(rigify_rig, "MCH-CTRL-eye.L", "MCH", None, 30)
+        bones.set_bone_collection(rigify_rig, "MCH-CTRL-eye.R", "MCH", None, 30)
+
         if facial_profile == "MH":
             bones.set_bone_collection(rigify_rig, "MCH-facerig2", "MCH", None, 30)
             bones.set_bone_collection(rigify_rig, "MCH-facerig2_controls", "MCH", None, 30)
@@ -339,6 +350,7 @@ def build_facerig(chr_cache, rigify_rig, meta_rig, cc3_rig):
             pose_bone = bones.get_pose_bone(rigify_rig, bone_name)
             if pose_bone:
                 bones.set_bone_collection(rigify_rig, pose_bone, "Face (UI)", bone_groups[i], 23)
+                bones.set_bone_collection(rigify_rig, pose_bone, "Face")
                 bones.set_bone_color(rigify_rig, pose_bone, bone_colors[i])
                 pose_bone.custom_shape = bone_shapes[i]
                 pose_bone.custom_shape_scale_xyz = bone_scale
@@ -362,8 +374,10 @@ def build_facerig(chr_cache, rigify_rig, meta_rig, cc3_rig):
             hue_shift = control_def.get("color_shift", 0.0)
             bones.keep_locks(nub_bone)
             bones.set_bone_collection(rigify_rig, line_bone, "Face (UI)", "Face", 22)
+            bones.set_bone_collection(rigify_rig, line_bone, "Face")
             bones.set_bone_color(rigify_rig, line_bone, "FACERIG_DARK", "FACERIG_DARK", "FACERIG_DARK", chr_cache=chr_cache, hue_shift=hue_shift)
             bones.set_bone_collection(rigify_rig, nub_bone, "Face (Expressions)", "Face", 22)
+            bones.set_bone_collection(rigify_rig, nub_bone, "Face")
             bones.set_bone_color(rigify_rig, nub_bone, "FACERIG", "FACERIG", "FACERIG", chr_cache=chr_cache, hue_shift=hue_shift)
             control_range_y = control_def["range"]
             y_invert = control_range_y[1] < control_range_y[0]
@@ -399,8 +413,10 @@ def build_facerig(chr_cache, rigify_rig, meta_rig, cc3_rig):
             hue_shift = control_def.get("color_shift", 0.0)
             bones.keep_locks(nub_bone)
             bones.set_bone_collection(rigify_rig, box_bone, "Face (UI)", "Face", 22)
+            bones.set_bone_collection(rigify_rig, box_bone, "Face")
             bones.set_bone_color(rigify_rig, box_bone, "FACERIG_DARK", "FACERIG_DARK", "FACERIG_DARK", chr_cache=chr_cache, hue_shift=hue_shift)
             bones.set_bone_collection(rigify_rig, nub_bone, "Face (Expressions)", "Face", 22)
+            bones.set_bone_collection(rigify_rig, nub_bone, "Face")
             bones.set_bone_color(rigify_rig, nub_bone, "FACERIG", "FACERIG", "FACERIG", chr_cache=chr_cache, hue_shift=hue_shift)
             control_range_x = control_def["x_range"]
             control_range_y = control_def["y_range"]
@@ -833,6 +849,7 @@ def build_facerig_drivers(chr_cache, rigify_rig):
 
     # first drive the shape keys on any other body objects from the head body object
     # expression rig will then override these
+    add_missing_expressions(chr_cache)
     drivers.add_body_shape_key_drivers(chr_cache, True)
 
     BONE_CLEAR_CONSTRAINTS = [
@@ -868,7 +885,7 @@ def build_facerig_drivers(chr_cache, rigify_rig):
 
     if rigutils.select_rig(rigify_rig):
 
-        bones.set_bone_collection_visibility(rigify_rig, "Face", 0, False)
+        #bones.set_bone_collection_visibility(rigify_rig, "Face", 0, False)
         bones.set_bone_collection_visibility(rigify_rig, "Face (Primary)", 1, False)
         bones.set_bone_collection_visibility(rigify_rig, "Face (Secondary)", 2, False)
 
@@ -887,7 +904,9 @@ def build_facerig_drivers(chr_cache, rigify_rig):
                                               description="Overall strength of the expression rig bone movements")
         data_path = facerig_bone.path_from_id("[\"head_follow\"]")
         bones.clear_constraints(rigify_rig, "MCH-facerig")
-        child_con = bones.add_child_of_constraint(rigify_rig, rigify_rig, "root", "MCH-facerig", 1.0)
+        child_con_1 = bones.add_copy_location_constraint(rigify_rig, rigify_rig, "root", "MCH-facerig", 1.0, axes="XY")
+        child_con_2 = bones.add_copy_rotation_constraint(rigify_rig, rigify_rig, "root", "MCH-facerig", 1.0, use_z=True, use_x=False, use_y=False)
+        #child_con = bones.add_child_of_constraint(rigify_rig, rigify_rig, "root", "MCH-facerig", 1.0)
         loc_con = bones.add_copy_location_constraint(rigify_rig, rigify_rig, "MCH-facerig_parent", "MCH-facerig", 0.2)
         rot_con1 = bones.add_copy_rotation_constraint(rigify_rig, rigify_rig, "MCH-facerig_parent", "MCH-facerig", 0.6,
                                                      use_x=False, use_y=False, use_z=True)
@@ -895,7 +914,10 @@ def build_facerig_drivers(chr_cache, rigify_rig):
                                                      use_x=True, use_y=True, use_z=False)
         bones.add_constraint_influence_driver(rigify_rig, "MCH-facerig",
                                               rigify_rig, data_path, "rf",
-                                              constraint=child_con, expression="(1.0 if rf else 0.0)")
+                                              constraint=child_con_1, expression="(1.0 if rf else 0.0)")
+        bones.add_constraint_influence_driver(rigify_rig, "MCH-facerig",
+                                              rigify_rig, data_path, "rf",
+                                              constraint=child_con_2, expression="(1.0 if rf else 0.0)")
         bones.add_constraint_influence_driver(rigify_rig, "MCH-facerig",
                                               rigify_rig, data_path, "rf",
                                               loc_con)
@@ -1756,6 +1778,50 @@ def toggle_lock_position(chr_cache, rig):
             pose_bone.bone.hide_select = True
 
 
+def get_driven_expressions(chr_cache):
+    driven_expressions = []
+    for expression_cache in chr_cache.expression_set:
+        key_name = expression_cache.key_name
+        if key_name not in driven_expressions:
+            driven_expressions.append(key_name)
+    return driven_expressions
+
+
+def add_expression_to_mesh(mesh, expression):
+    if not mesh.data.shape_keys.key_blocks:
+        mesh.add
+
+
+def add_missing_expressions(chr_cache):
+    driven_expressions = get_driven_expressions(chr_cache)
+    head: bpy.types.Object = meshutils.get_head_body_object(chr_cache)
+    eye = meshutils.get_eye_object(chr_cache)
+    tongue = meshutils.get_tongue_object(chr_cache)
+    teeth = meshutils.get_teeth_object(chr_cache)
+    objects = chr_cache.get_cache_objects()
+    if head:
+        if eye is None:
+            eye = head
+        if tongue is None:
+            tongue = head
+        if teeth is None:
+            teeth = head
+        for expression in driven_expressions:
+            if not meshutils.objects_have_shape_key(objects, expression):
+                if expression.startswith("Tongue_"):
+                    utils.log_info(f"Adding missing expression: {expression} to {tongue.name}")
+                    tongue.shape_key_add(name=expression, from_mix=False)
+                elif "_Eyeball_" in expression:
+                    utils.log_info(f"Adding missing expression: {expression} to {eye.name}")
+                    eye.shape_key_add(name=expression, from_mix=False)
+                elif expression.startswith("Teeth_"):
+                    utils.log_info(f"Adding missing expression: {expression} to {teeth.name}")
+                    teeth.shape_key_add(name=expression, from_mix=False)
+                else:
+                    utils.log_info(f"Adding missing expression: {expression} to {head.name}")
+                    head.shape_key_add(name=expression, from_mix=False)
+
+
 def build_arkit_bone_constraints(chr_cache, rigify_rig, proxy_rig):
     con1 = bones.add_copy_rotation_constraint(proxy_rig, rigify_rig, "head", "head", space="LOCAL_WITH_PARENT")
     con2 = bones.add_copy_rotation_constraint(proxy_rig, rigify_rig, "head", "neck", 0.25, space="LOCAL_WITH_PARENT")
@@ -1955,7 +2021,7 @@ def get_arkit_proxy(chr_cache):
     if chr_cache and chr_cache.rigified and utils.object_exists_is_armature(chr_cache.arkit_proxy):
         proxy_rig = chr_cache.arkit_proxy
         for child in proxy_rig.children:
-            if utils.prop(child, "arkit_proxy") == "fDsOJtp42n68X0e4ETVP":
+            if utils.get_prop(child, "arkit_proxy") == "fDsOJtp42n68X0e4ETVP":
                 proxy_mesh = child
                 return proxy_rig, proxy_mesh
     return None, None
@@ -2012,17 +2078,17 @@ def load_csv(chr_cache, file_path):
                 keys = facerig_data.ARKIT_SHAPE_KEY_TARGETS[facial_profile].keys()
                 key_action = utils.make_action(f"{chr_cache.character_name}_ARKit_Proxy_Head", slot_type="KEY", clear=True, reuse=True)
                 arm_action = utils.make_action(f"{chr_cache.character_name}_ARKit_Proxy", slot_type="OBJECT", clear=True, reuse=True)
-                key_channels = utils.get_action_channels(key_action, slot_type="KEY")
-                if key_channels:
+                key_channel = utils.get_action_channelbag(key_action, slot_type="KEY")
+                if key_channel:
                     for key in keys:
-                        fcurve = key_channels.fcurves.new(f"key_blocks[\"{key}\"].value")
+                        fcurve = key_channel.fcurves.new(f"key_blocks[\"{key}\"].value")
                         for tcurve in tcurves:
                             if tcurve.name.lower() == key.lower():
                                 tcurve.to_fcurve(fcurve)
                                 break
                 utils.safe_set_action(proxy_mesh.data.shape_keys, key_action)
-            bone_channels = utils.get_action_channels(arm_action, slot_type="OBJECT")
-            if bone_channels:
+            bone_channel = utils.get_action_channelbag(arm_action, slot_type="OBJECT")
+            if bone_channel:
                 for tcurve_name, bone_def in facerig_data.ARK_BONE_TARGETS.items():
                     for tcurve in tcurves:
                         if tcurve.name.lower() == tcurve_name.lower():
@@ -2033,7 +2099,7 @@ def load_csv(chr_cache, file_path):
                             rotation = bone_def["rotation"] * math.pi / 180
                             prop, var, index = facerig_data.ROT_AXES[axis]
                             data_path = bone.path_from_id(prop)
-                            fcurve = bone_channels.fcurves.new(data_path, index=index)
+                            fcurve = bone_channel.fcurves.new(data_path, index=index)
                             tcurve.to_fcurve(fcurve, rotation)
             utils.safe_set_action(proxy_rig, arm_action)
 
@@ -2157,6 +2223,7 @@ class TCurve():
         fcurve.keyframe_points.clear()
         fcurve.keyframe_points.add(num_frames)
         fcurve.keyframe_points.foreach_set('co', fcurve_data)
+        rigutils.reset_fcurve_interpolation(fcurve)
 
     def dump(self):
         utils.log_always(self.name)

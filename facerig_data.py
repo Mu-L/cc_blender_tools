@@ -3842,12 +3842,16 @@ FACERIG_TRA_CONFIG = {
             "x":
             {
                 "A10_Eye_Look_Out_Left": 1.0,
-                "A11_Eye_Look_In_Left": -1.0
+                "A11_Eye_Look_In_Left": -1.0,
+                "Left_Eyeball_Look_L": 1.0,
+                "Left_Eyeball_Look_R": -1.0
             },
             "y":
             {
                 "A06_Eye_Look_Up_Left": 1.0,
-                "A08_Eye_Look_Down_Left": -1.0
+                "A08_Eye_Look_Down_Left": -1.0,
+                "Left_Eyeball_Look_Up": 1.0,
+                "Left_Eyeball_Look_Down": -1.0
             }
         },
     },
@@ -3867,12 +3871,16 @@ FACERIG_TRA_CONFIG = {
             "x":
             {
                 "A12_Eye_Look_In_Right": 1.0,
-                "A13_Eye_Look_Out_Right": -1.0
+                "A13_Eye_Look_Out_Right": -1.0,
+                "Right_Eyeball_Look_L": 1.0,
+                "Right_Eyeball_Look_R": -1.0
             },
             "y":
             {
                 "A07_Eye_Look_Up_Right": 1.0,
-                "A09_Eye_Look_Down_Right": -1.0
+                "A09_Eye_Look_Down_Right": -1.0,
+                "Right_Eyeball_Look_Up": 1.0,
+                "Right_Eyeball_Look_Down": -1.0
             }
         },
     },
@@ -3894,14 +3902,22 @@ FACERIG_TRA_CONFIG = {
                 "A12_Eye_Look_In_Right": 1.0,
                 "A13_Eye_Look_Out_Right": -1.0,
                 "A10_Eye_Look_Out_Left": 1.0,
-                "A11_Eye_Look_In_Left": -1.0
+                "A11_Eye_Look_In_Left": -1.0,
+                "Left_Eyeball_Look_L": 1.0,
+                "Left_Eyeball_Look_R": -1.0,
+                "Right_Eyeball_Look_L": 1.0,
+                "Right_Eyeball_Look_R": -1.0
             },
             "y":
             {
                 "A07_Eye_Look_Up_Right": 1.0,
                 "A09_Eye_Look_Down_Right": -1.0,
                 "A06_Eye_Look_Up_Left": 1.0,
-                "A08_Eye_Look_Down_Left": -1.0
+                "A08_Eye_Look_Down_Left": -1.0,
+                "Left_Eyeball_Look_Up": 1.0,
+                "Left_Eyeball_Look_Down": -1.0,
+                "Right_Eyeball_Look_Up": 1.0,
+                "Right_Eyeball_Look_Down": -1.0
             }
         },
     },

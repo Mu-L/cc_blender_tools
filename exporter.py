@@ -1248,34 +1248,11 @@ def set_T_pose(arm, chr_json):
     return False
 
 
-def clear_animation_data(obj: bpy.types.Object):
-    if obj.type == "ARMATURE" or obj.type == "MESH":
-        # remove action
-        utils.safe_set_action(obj, None)
-        # remove strips
-        # this removes drivers too...
-        #obj.animation_data_clear()
-        ad = obj.animation_data
-        if ad:
-            while ad.nla_tracks:
-                ad.nla_tracks.remove(ad.nla_tracks[0])
-    if obj.type == "MESH":
-        # remove shape key action
-        utils.safe_set_action(obj.data.shape_keys, None)
-        # remove shape key strips
-        if obj.data.shape_keys and obj.data.shape_keys.animation_data:
-            obj.data.shape_keys.animation_data_clear()
-            ad = obj.data.shape_keys.animation_data
-            if ad:
-                while ad.nla_tracks:
-                    ad.nla_tracks.remove(ad.nla_tracks[0])
-
-
 def create_T_pose_action(arm, objects, export_strips):
 
     # remove all actions from objects
     for obj in objects:
-        clear_animation_data(obj)
+        rigutils.clear_animation_data(obj)
 
     bpy.context.scene.frame_start = 1
     bpy.context.scene.frame_end = 2
@@ -1458,17 +1435,17 @@ def write_pbr_material_to_json(context, mat, mat_json, path, name, bake_values):
             emission_socket = nodeutils.input_socket(bsdf_node, "Emission")
             emission_strength_socket = nodeutils.input_socket(bsdf_node, "Emission Strength")
 
-            roughness_value = roughness_socket.default_value
-            metallic_value = metallic_socket.default_value
+            roughness_value = nodeutils.extract_socket_value(roughness_socket.default_value, 1.0)
+            metallic_value = nodeutils.extract_socket_value(metallic_socket.default_value, 0.0)
             bake_roughness = False
             bake_metallic = False
-            specular_value = specular_socket.default_value
+            specular_value = nodeutils.extract_socket_value(specular_socket.default_value, 0.5)
             diffuse_color = (1,1,1,1)
             alpha_value = 1.0
             if not base_color_socket.is_linked:
-                diffuse_color = base_color_socket.default_value
+                diffuse_color = nodeutils.extract_socket_color(base_color_socket.default_value, (1,1,1,1))
             if not alpha_socket.is_linked:
-                alpha_value = alpha_socket.default_value
+                alpha_value = nodeutils.extract_socket_value(alpha_socket.default_value, 1.0)
             mat_json["Diffuse Color"] = jsonutils.convert_from_color(diffuse_color)
             mat_json["Specular Color"] = jsonutils.convert_from_color(
                         utils.linear_to_srgb((specular_value, specular_value, specular_value, 1.0))
@@ -1498,9 +1475,9 @@ def write_pbr_material_to_json(context, mat, mat_json, path, name, bake_values):
                 strength = 1.0
                 if type(strength_trace) is list:
                     for st in strength_trace:
-                        strength *= float(nodeutils.trace_input_value(n, st, 1.0))
-                else:
-                    strength = float(nodeutils.trace_input_value(n, strength_trace, 1.0))
+                        strength *= nodeutils.trace_input_value(n, st, 1.0)
+                elif strength_trace:
+                    strength = nodeutils.trace_input_value(n, strength_trace, 1.0)
                 if tex_id == "Bump":
                     strength = min(200, max(0, strength * 10000.0))
                 elif tex_id == "Normal":
@@ -1569,7 +1546,8 @@ def write_or_bake_tex_data_to_json(context, socket_mapping, mat, mat_json, bsdf_
                 image = bake.bake_bsdf_normal(context, bsdf_node, mat, tex_id, bake_path)
             else:
                 if bake_value:
-                    image = bake.pack_value_image(socket.default_value, mat, tex_id, bake_path)
+                    value = nodeutils.extract_socket_value(socket.default_value, 1.0)
+                    image = bake.pack_value_image(value, mat, tex_id, bake_path)
                 else:
                     image = bake.bake_node_socket_output(context, node, socket, mat, tex_id, bake_path)
 
@@ -2258,32 +2236,30 @@ def export_rigify(self, context, chr_cache, export_anim, file_path, include_sele
     export_actions = False
     export_strips = True
     baked_actions = []
+    clone_id = utils.generate_random_id(10)
 
-    export_rig, vertex_group_map, t_pose_action = rigging.prep_rigify_export(chr_cache,
-                                                            export_anim, baked_actions,
-                                                            include_t_pose=prefs.rigify_export_t_pose,
-                                                            objects=objects,
-                                                            bone_naming = prefs.rigify_export_naming)
-
-    if export_rig:
-        rigify_rig = chr_cache.get_armature()
-        objects.remove(rigify_rig)
-        objects.append(export_rig)
+    export_rig, export_objects, \
+    vertex_group_map, t_pose_action = rigging.prep_rigify_export(chr_cache,
+                                                export_anim, baked_actions,
+                                                include_t_pose=prefs.rigify_export_t_pose,
+                                                objects=objects,
+                                                bone_naming = prefs.rigify_export_naming,
+                                                clone_id=clone_id)
 
     use_anim = export_anim
     if prefs.rigify_export_t_pose:
         use_anim = True
 
     # remove custom material modifiers
-    remove_modifiers_for_export(chr_cache, objects, True, rig=export_rig)
+    remove_modifiers_for_export(chr_cache, export_objects, True, rig=export_rig)
 
-    prep_export(context, chr_cache, name, objects, json_data, chr_cache.get_import_dir(), dir,
+    prep_export(context, chr_cache, name, export_objects, json_data, chr_cache.get_import_dir(), dir,
                 include_textures, False, False, False, False)
 
     # for motion only exports, select armature and any mesh objects that have shape key animations
     if prefs.rigify_export_mode == "MOTION":
         utils.clear_selected_objects()
-        rigging.select_motion_export_objects(objects)
+        rigging.select_motion_export_objects(export_objects)
 
     armature_object, armature_data = rigutils.rename_armature(export_rig, name)
 
@@ -2329,18 +2305,19 @@ def export_rigify(self, context, chr_cache, export_anim, file_path, include_sele
 
     rigutils.restore_armature_names(armature_object, armature_data, name)
 
-    restore_modifiers(chr_cache, objects)
+    #restore_modifiers(chr_cache, objects)
 
     # clean up rigify export
     rigging.finish_rigify_export(chr_cache, export_rig, baked_actions, vertex_group_map,
-                                 objects=objects, bone_naming=prefs.rigify_export_naming)
+                                 objects=export_objects, bone_naming=prefs.rigify_export_naming,
+                                 clone_id=clone_id)
 
     utils.log_recess()
     utils.log_info("")
 
     if json_data:
         utils.log_info("Writing Json Data.")
-        update_facial_profile_json(chr_cache, objects, json_data, name)
+        update_facial_profile_json(chr_cache, export_objects, json_data, name)
         new_json_path = os.path.join(dir, name + ".json")
         jsonutils.write_json(json_data, new_json_path)
 

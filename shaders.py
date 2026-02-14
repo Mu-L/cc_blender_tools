@@ -497,6 +497,15 @@ def func_one_minus(cc, v):
 def func_sqrt(cc, v):
     return math.sqrt(v)
 
+def func_rpsqrt(cc, v):
+    prefs = vars.prefs()
+    p = 1.0
+    if cc.get_render_target() == "CYCLES":
+        p = prefs.cycles_roughness_power_b443b if utils.B440() else prefs.cycles_roughness_power_b341
+    else:
+        p = prefs.eevee_roughness_power_b443b if utils.B440() else prefs.eevee_roughness_power_b341
+    return pow(v, p / 2)
+
 def func_pow_2(cc, v):
     return math.pow(v, 2.0)
 
@@ -801,6 +810,7 @@ def set_image_node_tiling(nodes, links, node, mat_cache, texture_def, shader, sh
                 nodeutils.set_node_input_value(tiling_node, socket_name, eval_tiling_param(mapping_def, mat_cache, 2))
 
 
+# region init_character_property_defaults
 def init_character_property_defaults(chr_cache, chr_json, only:list=None):
     prefs = vars.prefs()
     processed = []
@@ -812,6 +822,8 @@ def init_character_property_defaults(chr_cache, chr_json, only:list=None):
         utils.log_info("(Using Json Data)")
     else:
         utils.log_info("(No Json Data)")
+
+    ext_eyelash = jsonutils.has_node_type(chr_json, "Eyelash")
 
     # Advanced properties
     for obj in chr_cache.get_cache_objects():
@@ -847,8 +859,7 @@ def init_character_property_defaults(chr_cache, chr_json, only:list=None):
                                 mat_cache.parameters.default_ao_strength = 0.4
                                 mat_cache.parameters.default_ao_power = 1.0
                                 mat_cache.parameters.default_specular_scale = 0.4
-                            except:
-                                pass
+                            except: ...
 
                         if mat_cache.source_name.startswith("Ga_Skin_"):
                             try:
@@ -856,11 +867,22 @@ def init_character_property_defaults(chr_cache, chr_json, only:list=None):
                                     mat_cache.parameters.default_roughness_power = 0.5
                                 else:
                                     mat_cache.parameters.default_roughness_power = 0.75
-                            except:
-                                pass
+                            except: ...
+
+                        if mat_cache.is_eyelash() and ext_eyelash:
+                            try:
+                                utils.log_info(f"Disabling standard eyelash ...")
+                                mat_cache.parameters.default_opacity = 0.0
+                            except: ...
+
+                        if mat_cache.is_hair():
+                            node_type = jsonutils.get_material_node_type(mat_json)
+                            if node_type in ["Brow", "Beard"]:
+                                mat_cache.parameters.hair_alpha_power = 2.0
 
                         utils.log_recess()
             utils.log_recess()
+# endregion
 
 
 def set_shader_input_props(shader_def, mat_cache, socket, value):
@@ -1303,7 +1325,7 @@ def connect_hair_shader(obj_cache, obj, mat, mat_json, processed_images):
         mat.use_sss_translucency = True
 
 
-def connect_pbr_shader(obj_cache, obj, mat: bpy.types.Material, mat_json, processed_images):
+def connect_pbr_shader(obj_cache, obj, mat: bpy.types.Material, mat_json, processed_images, ext_eyelash=False):
     props = vars.props()
     prefs = vars.prefs()
 
@@ -1328,6 +1350,10 @@ def connect_pbr_shader(obj_cache, obj, mat: bpy.types.Material, mat_json, proces
     materials.set_material_alpha(mat, method)
 
     if mat_cache.is_eyelash():
+        if ext_eyelash:
+            mat_cache.parameters.default_opacity = 0.0
+            nodeutils.set_node_input_value(group, "Opacity", 0.0)
+        nodeutils.set_node_input_value(group, "Specular Scale", 0.25)
         nodeutils.set_node_input_value(group, "Specular Scale", 0.25)
         nodeutils.set_node_input_value(bsdf, "Subsurface", 0.001)
         fix_sss_method(bsdf, is_scalp=True)
@@ -1451,12 +1477,12 @@ def check_tex_count(links, shader_node, wrinkle_shader_node, max_images=32):
             nodeutils.unlink_node_input(links, shader_node, "Specular Map")
             active_tex_count -= 1
     if active_tex_count > max_images:
-        nbs = nodeutils.get_node_input_value(shader_node, "Normal Blend Strength")
+        nbs = nodeutils.get_node_input_value(shader_node, "Normal Blend Strength", 0.0)
         if nbs < 0.01 and nodeutils.has_connected_input(shader_node, "Normal Blend Map"):
             nodeutils.unlink_node_input(links, shader_node, "Normal Blend Map")
             active_tex_count -= 1
     if active_tex_count > max_images:
-        cbs = nodeutils.get_node_input_value(shader_node, "Blend Overlay Strength")
+        cbs = nodeutils.get_node_input_value(shader_node, "Blend Overlay Strength", 0.0)
         if cbs < 0.01 and nodeutils.has_connected_input(shader_node, "Blender Overlay"):
             nodeutils.unlink_node_input(links, shader_node, "Blender Overlay")
             active_tex_count -= 1

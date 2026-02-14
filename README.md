@@ -33,6 +33,36 @@ Links
 
 ## Changelog
 
+### 2.4.0
+- Displacement update for Skin and Pbr materials.
+- Displacement added for Teeth and Hair.
+- Clean empty mesh shape-keys and vertex groups on import (optional).
+- Motion imports use actions slots for a single action for the entire character (optional).
+    - Depending on action options, motions will refactor into Single action or multiple actions for each object.
+    - Refactoring will also strip key-frames from bones and keys that have drivers.
+    - Unused bones and shape-key tracks will be placed into unassigned slots or actions.
+    - Motion imports set the preview range.
+    - Add empty keyframes for non-animated shape keys (optional).
+    - Function to clean up duplicate keyframes.
+    - Function to add a new empty motion set.
+    - Motion, Pose and Sequence action import options:
+        - New - Add new motion for the character.
+        - Replace - Replace existing motion.
+        - Overwrite - Overwrite keyframes of existing animation with the imported motion.
+    - Motion, Pose and Sequence frame import options:
+        - Start - Import animations to frame 1.
+        - Current - Import animations to the current frame in the scene.
+        - Match - Import animations to the same frames as in CC / iClone (+1 for Blender)
+- Rig drivers add missing expression blendshapes.
+- FaceRig collection uses Rigify Face collection.
+    - Can now be enabled / disabled with the Rigify UI controls.
+- Standard eyelash disabled when HD Eyelash detected.
+- Fix to Facerig following root position.
+- Fix to shape key baking on export.
+- Fix to bad vertex weights when skinning the rigify face rig on SubD 1/2 characters.
+- Fix to material merge (InstaLod) character detection.
+- Fix to baking node socket strength values from Color/Vector inputs.
+
 ### 2.3.4
 - Add / apply physics resets physics to frame 1.
 - Reset all dynamics added to cloth physics panel.
@@ -46,6 +76,7 @@ Links
     - ARKit Proxy CSV load error in Blender 5.0.
     - Receive Pose/Sequence error in Blender 5.0.
     - Material bake in Blender 5.0.
+    - Sculpt bake base shape copy.
 
 ### 2.3.3
 - Blender 5.0 update.

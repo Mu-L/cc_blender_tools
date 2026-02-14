@@ -36,12 +36,13 @@ def delete_import(chr_cache):
     utils.clean_up_unused()
 
 
-def process_material(chr_cache, obj_cache, obj, mat, obj_json, processed_images):
+def process_material(chr_cache, chr_json, obj_cache, obj, mat, obj_json, processed_images):
     props = vars.props()
     prefs = vars.prefs()
 
     mat_cache = chr_cache.get_material_cache(mat)
     mat_json = jsonutils.get_material_json(obj_json, mat)
+    ext_eyelash = jsonutils.has_node_type(chr_json, "Eyelash")
 
     if not mat_cache: return
 
@@ -83,7 +84,7 @@ def process_material(chr_cache, obj_cache, obj, mat, obj_json, processed_images)
             shaders.connect_sss_shader(obj_cache, obj, mat, mat_json, processed_images)
 
         else:
-            shaders.connect_pbr_shader(obj_cache, obj, mat, mat_json, processed_images)
+            shaders.connect_pbr_shader(obj_cache, obj, mat, mat_json, processed_images, ext_eyelash)
 
         # optional pack channels
         if prefs.build_limit_textures or prefs.build_pack_texture_channels:
@@ -179,7 +180,7 @@ def process_object(chr_cache, obj, obj_cache, objects_processed, chr_json, proce
                 utils.log_info("Processing Material: " + mat.name)
                 utils.log_indent()
 
-                process_material(chr_cache, obj_cache, obj, mat, obj_json, processed_images)
+                process_material(chr_cache, chr_json, obj_cache, obj, mat, obj_json, processed_images)
                 if processed_materials is not None:
                     first = materials.find_duplicate_material(chr_cache, mat, processed_materials)
                     if first:
@@ -291,15 +292,15 @@ def init_shape_key_range(obj):
             # the shapekey action to update to the new ranges:
             try:
                 action = utils.safe_get_action(shape_keys)
-                channels = utils.get_action_channels(action, slot_type="KEY")
-                if channels:
-                    co = channels.fcurves[0].keyframe_points[0].co
-                    channels.fcurves[0].keyframe_points[0].co = co
+                channel = utils.get_action_channelbag(action, slot_type="KEY")
+                if channel:
+                    co = channel.fcurves[0].keyframe_points[0].co
+                    channel.fcurves[0].keyframe_points[0].co = co
             except:
                 pass
 
-
-def detect_generation(chr_cache, json_data, character_id):
+# region detect_generation
+def detect_generation(chr_cache, rig, json_data, character_id):
 
     generation = "Unknown"
     if json_data:
@@ -315,7 +316,8 @@ def detect_generation(chr_cache, json_data, character_id):
         elif json_generation is not None and json_generation == "":
             generation = "Humanoid"
         elif json_generation is None:
-            generation = "Prop"
+            rig_generation = rigutils.get_rig_generation(rig)
+            generation = rig_generation if rig_generation != "Unknown" else "Prop"
 
     arm = chr_cache.get_armature()
 
@@ -395,6 +397,7 @@ def detect_generation(chr_cache, json_data, character_id):
 
     utils.log_info(f"Detected Character Generation: {generation}")
     return generation
+# endregion
 
 
 def is_iclone_temp_motion(name : str):
@@ -431,6 +434,7 @@ def purge_imported_object(obj, imported_images):
 
 
 def remap_action_names(arm, objects, actions, source_id, motion_prefix=""):
+    prefs = vars.prefs()
     key_map = {}
     num_keys = 0
 
@@ -447,6 +451,7 @@ def remap_action_names(arm, objects, actions, source_id, motion_prefix=""):
     # find all motions for this armature
     armature_actions = []
     shapekey_actions = []
+    slotted_actions = []
     motion_ids = set()
     motion_sets = {}
     for action in actions:
@@ -463,14 +468,18 @@ def remap_action_names(arm, objects, actions, source_id, motion_prefix=""):
     # determine how each shape key id relates to each object in the import
     for obj in objects:
         if obj.type == "MESH":
-            obj_id = rigutils.get_action_obj_id(obj)
+            obj_id = rigutils.get_obj_id(obj)
             if obj.data.shape_keys:
                 obj_action = utils.safe_get_action(obj.data.shape_keys)
                 if obj_action:
-                    actions.append(obj_action)
-                    key_map[obj_id] = obj.data.shape_keys.name
-                    utils.log_info(f"ShapeKey: {obj.data.shape_keys.name} belongs to: {obj_id}")
-                    num_keys += 1
+                    if obj_action in armature_actions:
+                        if obj_action not in slotted_actions:
+                            slotted_actions.append(obj_action)
+                    else:
+                        actions.append(obj_action)
+                        key_map[obj_id] = obj.data.shape_keys.name
+                        utils.log_info(f"ShapeKey: {obj.data.shape_keys.name} belongs to: {obj_id}")
+                        num_keys += 1
 
     # rename all actions associated with this armature and it's motions
     for action in actions:
@@ -480,10 +489,12 @@ def remap_action_names(arm, objects, actions, source_id, motion_prefix=""):
         if motion_id in motion_ids:
             set_id, set_generation = motion_sets[motion_id]
             if action in armature_actions:
-                action_name = rigutils.make_armature_action_name(rig_id, motion_id, motion_prefix)
+                action_name = rigutils.make_armature_action_name(rig_id, motion_id, motion_prefix, slotted=prefs.use_action_slots())
                 utils.log_info(f"Renaming action: {action.name} to {action_name}")
                 action.name = action_name
-                rigutils.add_motion_set_data(action, set_id, set_generation, rl_arm_id=rl_arm_id)
+                rigutils.add_motion_set_data(action, set_id, set_generation,
+                                             arm_id=rl_arm_id,
+                                             slotted=(action in slotted_actions))
                 armature_actions.append(action)
             else:
                 for obj_id, key_name in key_map.items():
@@ -509,7 +520,7 @@ def process_root_bones(arm, json_data, name):
                 pose_bone["root_id"] = sub_link_id
                 pose_bone["root_type"] = type
 
-
+# region process_rl_import
 def process_rl_import(file_path, import_flags, armatures, rl_armatures, cameras, lights,
                       objects: list,
                       actions, json_data, report, link_id, only_objects=None, motion_prefix=""):
@@ -640,7 +651,7 @@ def process_rl_import(file_path, import_flags, armatures, rl_armatures, cameras,
             utils.log_recess()
 
             # determine character generation
-            chr_cache.generation = detect_generation(chr_cache, json_data, chr_cache.get_character_id())
+            chr_cache.generation = detect_generation(chr_cache, arm, json_data, chr_cache.get_character_id())
             utils.log_info("Generation: " + chr_cache.character_name + " (" + chr_cache.generation + ")")
             arm["rl_generation"] = chr_cache.generation
 
@@ -852,6 +863,7 @@ def process_rl_import(file_path, import_flags, armatures, rl_armatures, cameras,
 
     utils.log_info("")
     return imported_characters
+# endregion
 
 
 def obj_import(file_path, split_objects=False, split_groups=False, vgroups=False):
@@ -898,53 +910,53 @@ class CC3Import(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     filepath: bpy.props.StringProperty(
-        name="Filepath",
-        description="Filepath of the model to import.",
-        subtype="FILE_PATH"
+        name = "Filepath",
+        description = "Filepath of the model to import.",
+        subtype = "FILE_PATH"
         )
 
     directory: bpy.props.StringProperty(subtype='DIR_PATH')
 
     files: bpy.props.CollectionProperty(
-            type=bpy.types.OperatorFileListElement,
-            options={'HIDDEN', 'SKIP_SAVE'}
+            type = bpy.types.OperatorFileListElement,
+            options = {'HIDDEN', 'SKIP_SAVE'}
     )
 
     link_id: bpy.props.StringProperty(
-        default="",
-        name="Link ID",
-        description="Link ID override",
-        options={"HIDDEN"},
+        default = "",
+        name = "Link ID",
+        description = "Link ID override",
+        options = {"HIDDEN"},
     )
 
     process_only: bpy.props.StringProperty(
-        default="",
-        options={"HIDDEN"},
+        default = "",
+        options = {"HIDDEN"},
     )
 
     no_build: bpy.props.BoolProperty(
-        default=False,
-        name="No Build",
-        description="Don't build materials",
-        options={"HIDDEN"},
+        default = False,
+        name = "No Build",
+        description = "Don't build materials",
+        options = {"HIDDEN"},
     )
 
     no_rigify: bpy.props.BoolProperty(
-        default=False,
-        name="Don't Rigify",
-        description="Don't Rigify Character",
-        options={"HIDDEN"},
+        default = False,
+        name = "Don't Rigify",
+        description = "Don't Rigify Character",
+        options = {"HIDDEN"},
     )
 
     filter_glob: bpy.props.StringProperty(
-        default="*.fbx;*.obj;*.glb;*.gltf;*.vrm;*.usd*",
-        options={"HIDDEN"},
+        default = "*.fbx;*.obj;*.glb;*.gltf;*.vrm;*.usd*",
+        options = {"HIDDEN"},
         )
 
     param: bpy.props.StringProperty(
             name = "param",
             default = "",
-            options={"HIDDEN"}
+            options = {"HIDDEN"}
         )
 
     motion_prefix: bpy.props.StringProperty(
@@ -957,12 +969,16 @@ class CC3Import(bpy.types.Operator):
         default = True
     )
 
-    use_anim: bpy.props.BoolProperty(name = "Import Animation", description = "Import animation with character.\nWarning: long animations take a very long time to import in Blender 2.83", default = True)
+    start_frame: bpy.props.IntProperty(name = "Start Frame", default = 1)
+
+    use_anim: bpy.props.BoolProperty(name = "Import Animation",
+                                     description = "Import animation with character.\nWarning: long animations take a very long time to import in Blender 2.83",
+                                     default = True)
 
     zoom: bpy.props.BoolProperty(
-        default=False,
-        name="Zoom View",
-        description="Zoom view to imported character",
+        default = False,
+        name = "Zoom View",
+        description = "Zoom view to imported character",
     )
 
     count = 0
@@ -1011,7 +1027,7 @@ class CC3Import(bpy.types.Operator):
 
         return json_data
 
-
+    # region import_character
     def import_character(self, context):
         props = vars.props()
         prefs = vars.prefs()
@@ -1056,12 +1072,22 @@ class CC3Import(bpy.types.Operator):
                 # But the mesh is really all we need, so just keep going...
                 if colorspace.is_aces():
                     try:
-                        bpy.ops.import_scene.fbx(filepath=filepath, directory=dir, use_anim=import_anim, use_image_search=False, use_custom_normals=True)
+                        bpy.ops.import_scene.fbx(filepath=filepath,
+                                                 directory=dir,
+                                                 use_anim=import_anim,
+                                                 use_image_search=False,
+                                                 use_custom_normals=True,
+                                                 anim_offset=self.start_frame)
                     except:
                         utils.log_warn("FBX Import Error: This may be due to color space differences. Continuing...")
                 else:
                     try:
-                        bpy.ops.import_scene.fbx(filepath=filepath, directory=dir, use_anim=import_anim, use_image_search=False, use_custom_normals=True)
+                        bpy.ops.import_scene.fbx(filepath=filepath,
+                                                 directory=dir,
+                                                 use_anim=import_anim,
+                                                 use_image_search=False,
+                                                 use_custom_normals=True,
+                                                 anim_offset=self.start_frame)
                     except:
                         utils.log_error("FBX Import Error due to bad mesh?")
 
@@ -1079,6 +1105,17 @@ class CC3Import(bpy.types.Operator):
                 for obj in remove_objects:
                     imported.remove(obj)
                     purge_imported_object(obj, self.imported_images)
+
+                # clean empty shape keys from character objects
+                if prefs.clean_empty_mesh_data:
+                    for obj in imported:
+                        if obj.parent and obj.parent.type == "ARMATURE":
+                            arm = obj.parent
+                            characters.remove_empty_shapekeys_vertex_groups(arm, obj)
+
+                # combine actions (B440 action slots)
+                if prefs.use_action_slots():
+                    actions = rigutils.refactor_to_slotted_action(imported, actions)
 
                 for action in actions:
                     action.use_fake_user = self.use_fake_user
@@ -1150,7 +1187,7 @@ class CC3Import(bpy.types.Operator):
                 utils.log_timer("Done .Obj Import.")
 
             elif ImportFlags.RLX in import_flags:
-                imported = rlx.import_rlx(filepath)
+                imported = rlx.import_rlx(filepath, self.start_frame)
 
             elif ImportFlags.GLB in import_flags:
 
@@ -1217,8 +1254,9 @@ class CC3Import(bpy.types.Operator):
                     self.imported_character_ids.append(chr_cache.link_id)
 
                 utils.log_timer("Done .USD Import?")
+    # endregion
 
-
+    # region build_materials
     def build_materials(self, context, render_target=None):
         objects_processed = []
         props = vars.props()
@@ -1315,8 +1353,9 @@ class CC3Import(bpy.types.Operator):
                 bpy.context.scene.eevee.use_ssr_refraction = True
 
         utils.log_timer("Done Build.", "s")
+    # endregion
 
-
+    # region build_drivers
     def build_drivers(self, context, rebuild_wrinkle=False):
         props = vars.props()
         prefs = vars.prefs()
@@ -1351,6 +1390,8 @@ class CC3Import(bpy.types.Operator):
             # update character data props
             chr_cache.check_ids()
 
+            rig = chr_cache.get_armature()
+
             if chr_cache.cache_type() != "AVATAR": continue
 
             if chr_cache.rigified:
@@ -1366,7 +1407,10 @@ class CC3Import(bpy.types.Operator):
                 utils.log_info(f"Facial Profile: {facial_name}")
                 utils.log_info(f"Viseme Profile: {viseme_name}")
                 rigging.store_expression_set(chr_cache, chr_cache.get_armature())
-                if facial_profile == "STD" or facial_profile == "EXT" or facial_profile == "TRA":
+                if (facial_profile == "STD" or
+                    facial_profile == "EXT" or
+                    facial_profile == "TRA" or
+                    facial_profile == "MH"):
                     drivers.add_facial_shape_key_bone_drivers(chr_cache,
                                                prefs.build_shape_key_bone_drivers_jaw,
                                                prefs.build_shape_key_bone_drivers_eyes,
@@ -1377,10 +1421,15 @@ class CC3Import(bpy.types.Operator):
                                                        only_selected=(props.build_mode=="SELECTED"))
             drivers.add_body_shape_key_drivers(chr_cache, prefs.build_body_key_drivers, driver_objects)
 
+            # reload motion set as this will cull any driven shapekeys from the action channels
+            action = utils.safe_get_action(rig)
+            rigutils.load_motion_set(rig, action)
+
             if rebuild_wrinkle:
                 wrinkle.build_wrinkle_drivers(chr_cache, chr_json, wrinkle_shader_name=wrinkle.WRINKLE_SHADER_NAME)
 
         utils.log_timer("Done Build.", "s")
+    # endregion
 
 
     def remove_drivers(self, context):
@@ -1508,11 +1557,14 @@ class CC3Import(bpy.types.Operator):
                     rigutils.is_G3_armature(obj) or
                     rigutils.is_iClone_armature(obj)):
                     utils.log_info(f"RL character armature found: {obj.name}")
+                    if avatar_type == "None":
+                        avatar_type = "NoneStandard"
                     import_flags = import_flags | ImportFlags.RL
                     if obj not in rl_armatures:
                         rl_armatures.append(obj)
                 else:
                     if obj not in armatures:
+                        utils.log_info(f"None RL character armature found: {obj.name}")
                         armatures.append(obj)
             elif utils.object_exists_is_camera(obj):
                 if (avatar_type == "CAMERA" or
@@ -1866,20 +1918,20 @@ class CC3ImportAnimations(bpy.types.Operator):
 
     remove_meshes: bpy.props.BoolProperty(
         default = True,
-        description="Remove all imported mesh objects.",
-        name="Remove Meshes",
+        description = "Remove all imported mesh objects.",
+        name = "Remove Meshes",
     )
 
     remove_materials_images: bpy.props.BoolProperty(
         default = True,
-        description="Remove all imported materials and image textures.",
-        name="Remove Materials & Images",
+        description = "Remove all imported materials and image textures.",
+        name = "Remove Materials & Images",
     )
 
     remove_shape_keys: bpy.props.BoolProperty(
         default = False,
-        description="Remove Shapekey actions along with their meshes.",
-        name="Remove Shapekey Actions",
+        description = "Remove Shapekey actions along with their meshes.",
+        name = "Remove Shapekey Actions",
     )
 
     param: bpy.props.StringProperty(
@@ -1898,7 +1950,11 @@ class CC3ImportAnimations(bpy.types.Operator):
         default = True
     )
 
+    start_frame: bpy.props.IntProperty(name="Start Frame", default=1)
+
     def import_animation_fbx(self, dir, file):
+        prefs = vars.prefs()
+
         path = os.path.join(dir, file)
         name = file[:-4]
 
@@ -1909,11 +1965,21 @@ class CC3ImportAnimations(bpy.types.Operator):
         old_images = utils.get_set(bpy.data.images)
         old_actions = utils.get_set(bpy.data.actions)
         old_materials = utils.get_set(bpy.data.materials)
-        bpy.ops.import_scene.fbx(filepath=path, directory=dir, use_anim=True, use_image_search=False)
+
+        bpy.ops.import_scene.fbx(filepath=path,
+                                 directory=dir,
+                                 use_anim=True,
+                                 use_image_search=False,
+                                 anim_offset=self.start_frame)
+
         objects = utils.get_set_new(bpy.data.objects, old_objects)
         actions = utils.get_set_new(bpy.data.actions, old_actions)
         images = utils.get_set_new(bpy.data.images, old_images)
         materials = utils.get_set_new(bpy.data.materials, old_materials)
+
+        # combine actions (B440 action slots)
+        if prefs.use_action_slots():
+            actions = rigutils.refactor_to_slotted_action(objects, actions)
 
         for action in actions:
             action.use_fake_user = self.use_fake_user
@@ -1937,6 +2003,7 @@ class CC3ImportAnimations(bpy.types.Operator):
                 arm.data.name = name
             shapekey_actions = remap_action_names(arm, armature_objects, actions, source_id,
                                                   motion_prefix=self.motion_prefix)[1]
+
         utils.log_recess()
 
         utils.log_info("Cleaning up:")

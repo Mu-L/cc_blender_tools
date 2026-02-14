@@ -1465,7 +1465,7 @@ def pack_skin_shader(chr_cache, mat_cache, shader_node, limit_textures = False):
 
         pack_r_g_b_a(mat, bake_dir, vars.PACK_WRINKLEDISPLACEMENT_NAME, wrinkle_node, vars.PACK_WRINKLEDISPLACEMENT_ID,
                     "WRINKLEDISPLACEMENT1", "WRINKLEDISPLACEMENT2", "WRINKLEDISPLACEMENT3", "DISPLACE",
-                    "Height Map 1", "Height Map 2", "Height Map 3", "Height Map",
+                    "Displacement Map 1", "Displacement Map 2", "Displacement Map 3", "Displacement Map",
                     0.5, 0.5, 0.5, 0.5,
                     reuse_existing = reuse,
                     max_size=pack_max_tex_size)
@@ -1977,7 +1977,7 @@ def test_unmodified_socket(shader_node, socket_name, default_value, linked_socke
                 if not linked_socket.is_linked:
                     return True
             socket_value = socket.default_value
-            if type(default_value) is list or type(default_value) is tuple:
+            if type(default_value) is list or type(default_value) is tuple or type(default_value) is bpy.types.bpy_prop_array:
                 for i in range(0, len(default_value)):
                     if abs(default_value[i] - socket_value[i]) > 0.001:
                         return False
@@ -2325,7 +2325,7 @@ def bake_export_material(context, mat, source_mat, source_mat_cache):
     if nodeutils.has_connected_input(bsdf_node, bsdf_socket):
         if "Bump" in bake_maps and props.allow_bump_maps:
             if can_bake_from_shader_node(shader_node, bsdf_node, bsdf_socket):
-                bump_node, bump_socket = nodeutils.get_node_and_socket_connected_to_input(shader_node, ["Height Map", "Bump Map"])
+                bump_node, bump_socket = nodeutils.get_node_and_socket_connected_to_input(shader_node, ["Bump Map"])
                 bump_distance = nodeutils.get_node_input_value(shader_node, "Bump Strength", 0.01)
                 # note: there is not shader node bump output, so only bake the input
                 if bump_node:
@@ -2527,7 +2527,7 @@ def combine_diffuse_tex(nodes, source_mat, source_mat_cache, mat,
     alpha_data = None
     bsdf_node = nodeutils.get_bsdf_node(mat)
     base_color_socket = nodeutils.input_socket(bsdf_node, "Base Color")
-    diffuse_value = nodeutils.get_node_input_value(bsdf_node, base_color_socket, (1,1,1,1))
+    diffuse_value = nodeutils.get_node_input_color(bsdf_node, base_color_socket, (1,1,1,1))
 
     map_suffix = "BaseMap"
     path = get_bake_path()

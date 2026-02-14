@@ -3582,8 +3582,7 @@ class LinkService():
                 if LINK_DATA.set_keyframes:
                     write_sequence_actions(actor, 1, opt_start_frame)
                 if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
-                    #remove_datalink_import_rig(actor, apply_contraints=not LINK_DATA.set_keyframes)
-                    disable_datalink_import_rig(actor, apply_contraints=not LINK_DATA.set_keyframes)
+                    remove_datalink_import_rig(actor, apply_contraints=not LINK_DATA.set_keyframes)
 
             if actor.get_type() == "PROP":
                 rigutils.update_prop_rig(actor.get_armature())

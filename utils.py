@@ -373,6 +373,21 @@ def object_exists_is_mesh(obj):
         return False
 
 
+def object_exists_has_shape_keys(obj):
+    """Test if Object: obj still exists as an object in the scene, and is a mesh."""
+    if obj is None:
+        return False
+    try:
+        name = obj.name
+        return (len(obj.users_scene) > 0 and
+                obj.type == "MESH" and
+                obj.data.shape_keys is not None and
+                obj.data.shape_keys.key_blocks is not None and
+                len(obj.data.shape_keys.key_blocks) > 1)
+    except:
+        return False
+
+
 def object_exists_is_armature(obj) -> bool:
     """Test if Object: obj still exists as an object in the scene, and is an armature."""
     if obj is None:

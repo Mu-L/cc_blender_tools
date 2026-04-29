@@ -2599,8 +2599,8 @@ class CC3RigifyPanel(bpy.types.Panel):
 
                         layout.label(text="Import Options:")
                         row = layout.row(align=True)
-                        label = rigutils.CCICActionImportOptions.label(context)
-                        row.operator("ccic.action_import_options", icon="COLLAPSEMENU", text=label)
+                        label = rigutils.CCICMotionBlend.label(context)
+                        row.operator("ccic.motion_blend", icon="COLLAPSEMENU", text=label)
                         column = layout.column()
                         motion_set_ui(column, chr_cache)
 
@@ -2733,6 +2733,7 @@ def motion_set_ui(layout: bpy.types.UILayout, chr_cache, show_nla=False):
     col_2.separator()
     col_1.operator("ccic.rigutils", icon="PLUS", text="New").param = "NEW_ACTION_SET"
     col_2.operator("ccic.rigutils", icon="MODIFIER_ON", text="Clean").param = "CLEAN_ACTIONS"
+    col.operator("ccic.motion_blend", icon="MOD_ENVELOPE", text="Blend / Merge").param="BLEND"
 
 
     if show_nla:
@@ -2793,8 +2794,8 @@ class CCICAnimationToolsPanel(bpy.types.Panel):
 
         layout.label(text="Import Options:")
         row = layout.row(align=True)
-        label = rigutils.CCICActionImportOptions.label(context)
-        row.operator("ccic.action_import_options", icon="COLLAPSEMENU", text=label)
+        label = rigutils.CCICMotionBlend.label(context)
+        row.operator("ccic.motion_blend", icon="COLLAPSEMENU", text=label)
 
         column = layout.column()
 

@@ -1406,7 +1406,7 @@ def write_sequence_actions(actor: LinkActor, num_frames, start_frame):
             if rig_action:
                 action_mode, frame_mode = actor.get_import_modes()
                 rigutils.load_motion_set(rig, rig_action)
-                rigutils.finalize_motion_import(rig, rig_action, actor.action_store_id, action_mode)
+                rigutils.finalize_motion_import(actor.get_chr_cache(), rig, rig_action, actor.action_store_id, action_mode)
 
         elif actor.get_type() == "LIGHT":
 
@@ -4266,7 +4266,7 @@ class LinkService():
 
             if actor_rig and incoming_motion_action:
                 action_mode, frame_mode = actor.get_import_modes()
-                rigutils.finalize_motion_import(actor_rig, incoming_motion_action, action_store_id, action_mode)
+                rigutils.finalize_motion_import(actor.get_chr_cache(), actor_rig, incoming_motion_action, action_store_id, action_mode)
 
             utils.log_recess()
 

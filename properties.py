@@ -684,13 +684,15 @@ class CC3ArmatureList(bpy.types.PropertyGroup):
     actions: bpy.props.CollectionProperty(type=CC3ActionList)
 
 
+class CCICStringList(bpy.types.PropertyGroup):
+    name: bpy.props.StringProperty(default="")
+    index: bpy.props.IntProperty(default=0)
+    visible: bpy.props.BoolProperty(default=True)
+
+
 class CCIC_UI_MixItem(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty(default="")
-    weight: bpy.props.FloatProperty(default=1.0)
-
-
-class CCIC_UI_MixList(bpy.types.PropertyGroup):
-    bones: bpy.props.CollectionProperty(type=CCIC_UI_MixItem)
+    weight: bpy.props.FloatProperty(default=1.0, min=0.0, max=1.0)
 
 
 class CCICActionOptions(bpy.types.PropertyGroup):
@@ -700,29 +702,36 @@ class CCICActionOptions(bpy.types.PropertyGroup):
                         ("BLEND","Overwrite","Import the new actions into the existing actions keeping the keyframes not overwritten by the import"),
                     ], default="NEW", name = "Import Action Mode")
     frame_mode: bpy.props.EnumProperty(items=[
-                        ("START","Start","Import keyframes into Blender starting at the start frame"),
-                        ("CURRENT","Current","Import keyframes into Blender starting at the current frame"),
-                        ("MATCH","Match","Import keyframes into Blender matching keyframes with CC/iClone \n*Note: +1 as Blender starts at frame 1*"),
+                        ("START","Start","Import / Blend keyframes starting at the start frame (frame 1)"),
+                        ("CURRENT","Current","Import / Blend keyframes starting at the current frame"),
+                        ("MATCH","Match","Import / Blend keyframes matching keyframes with source motion\n*Note: +1 as Blender starts at frame 1*"),
                     ], default="MATCH", name = "Import Frame Mode")
-    use_masking: bpy.props.BoolProperty(default=False, name="Use Bone / Shape-Key Masking",
-                                        description="Only import the keyframes from the masked bones and shape-keys")
+    use_bone_masking: bpy.props.BoolProperty(default=False, name="Use Bone Masking",
+                                        description="Only import the keyframes from the masked bones")
+    use_key_masking: bpy.props.BoolProperty(default=False, name="Use Shape-Key Masking",
+                                        description="Only import the keyframes from the masked shape-keys")
     override_global: bpy.props.BoolProperty(default=False, name="Override for Character:",
                                             description="Override the global action options for this character or prop")
-    import_mix_bones: bpy.props.CollectionProperty(type=CCIC_UI_MixItem)
-    rig_mix_bones_list_index: bpy.props.IntProperty(default=-1)
-    import_mix_bones_list_index: bpy.props.IntProperty(default=-1)
+    import_bones: bpy.props.CollectionProperty(type=CCIC_UI_MixItem)
+    import_keys: bpy.props.CollectionProperty(type=CCIC_UI_MixItem)
+    available_bones: bpy.props.CollectionProperty(type=CCICStringList)
+    available_keys: bpy.props.CollectionProperty(type=CCICStringList)
+    import_bones_index: bpy.props.IntProperty(default=-1)
+    import_keys_index: bpy.props.IntProperty(default=-1)
+    available_bones_index: bpy.props.IntProperty(default=-1)
+    available_keys_index: bpy.props.IntProperty(default=-1)
     relative_root: bpy.props.BoolProperty(default=False, name="Relative Root",
                                           description="When overwriting motion, import the motion root relative to the motion root being overwritten")
-    use_blend: bpy.props.BoolProperty(default=False, name="Use Blend",
-                                          description="Use Blend")
+    use_blend: bpy.props.BoolProperty(default=False, name="Blend Frames",
+                                          description="Blend Frames from the incoming / selected motion into the existing motion")
     blend_strength: bpy.props.FloatProperty(default=1.0, name="Blend Strength",
                                             min=0.0, soft_min=0.0, soft_max=1.0,
                                             description="Blend Strength")
     blend_in_frames: bpy.props.IntProperty(default=0, name="Blend In",
-                                           min=0, soft_max=300,
+                                           min=0, soft_max=1000,
                                            description="Blend In")
     blend_out_frames: bpy.props.IntProperty(default=0, name="Blend Out",
-                                            min=0, soft_max=300,
+                                            min=0, soft_max=1000,
                                             description="Blend Out")
     action_store: bpy.props.CollectionProperty(type=CCICActionStore)
     # some masking settings ...

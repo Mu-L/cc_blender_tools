@@ -208,9 +208,10 @@ classes = (
     rigutils.CCICMotionSetRename,
     rigutils.CCICMotionSetInfo,
     rigutils.CCICRigUtils,
-    rigutils.CCIC_ImportMix_UL_List,
-    rigutils.CCIC_AvailableMix_UL_List,
+    rigutils.CCIC_IMPORTMIX_UL_List,
+    rigutils.CCIC_AVAILABLEMIX_UL_List,
     rigutils.CCICActionImportFunctions,
+    rigutils.CCICMotionBlendFunctions,
     rigutils.CCICMotionBlend,
     facerig.CCICImportARKitCSV,
 

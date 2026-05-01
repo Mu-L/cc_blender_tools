@@ -599,6 +599,50 @@ def clean_collection_property(collection_prop):
                     break
 
 
+def blend_mask_bone_preset_list(self, context):
+    preset_list = [("NONE", "Bone Mask Presets ...", "Bone Presets ...", 0)]
+    folder = utils.get_resource_folder("Presets")
+    json_files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)) and f.endswith("_bone.json")]
+    i = 1
+    for file in json_files:
+        preset_name = file[:-10]
+        preset_list.append((preset_name, preset_name, preset_name, i))
+        i += 1
+    return preset_list
+
+
+def blend_mask_key_preset_list(self, context):
+    preset_list = [("NONE", "Shape Key Mask Presets ...", "Key Presets ...", 0)]
+    folder = utils.get_resource_folder("Presets")
+    json_files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)) and f.endswith("_key.json")]
+    i = 1
+    for file in json_files:
+        preset_name = file[:-9]
+        preset_list.append((preset_name, preset_name, preset_name, i))
+        i += 1
+    return preset_list
+
+
+def update_blend_root_relative(self, context):
+    props = vars.props()
+    prefs = vars.prefs()
+    chr_cache = props.get_context_character_cache(context, strict=True)
+    if chr_cache:
+        opts = chr_cache.action_options
+        if opts.relative_root:
+            opts.current_root = False
+
+
+def update_blend_root_current(self, context):
+    props = vars.props()
+    prefs = vars.prefs()
+    chr_cache = props.get_context_character_cache(context, strict=True)
+    if chr_cache:
+        opts = chr_cache.action_options
+        if opts.current_root:
+            opts.relative_root = False
+
+
 class CC3OperatorProperties(bpy.types.Operator):
     """CC3 Property Functions"""
     bl_idname = "cc3.setproperties"
@@ -697,10 +741,14 @@ class CCIC_UI_MixItem(bpy.types.PropertyGroup):
 
 class CCICActionOptions(bpy.types.PropertyGroup):
     action_mode: bpy.props.EnumProperty(items=[
-                        ("NEW","New","Import actions as a new set of actions and keep the existing actions"),
-                        ("REPLACE","Replace","Import new actions to replace the existing actions"),
-                        ("BLEND","Overwrite","Import the new actions into the existing actions keeping the keyframes not overwritten by the import"),
+                        ("NEW","New","Import into new motions"),
+                        ("REPLACE","Replace","Imported motion will replace the existing motion on the character / rig"),
+                        ("BLEND","Overwrite","Overwrite keyframes in the existing motion with the imported motion (or pose)"),
                     ], default="NEW", name = "Import Action Mode")
+    blend_mode: bpy.props.EnumProperty(items=[
+                        ("NEW","New","Blend the source motion onto the destination as a new motion"),
+                        ("BLEND","Overwrite","Blend the source motion onto the existing destination motion"),
+                    ], default="NEW", name = "Action Blend Mode")
     frame_mode: bpy.props.EnumProperty(items=[
                         ("START","Start","Import / Blend keyframes starting at the start frame (frame 1)"),
                         ("CURRENT","Current","Import / Blend keyframes starting at the current frame"),
@@ -721,19 +769,34 @@ class CCICActionOptions(bpy.types.PropertyGroup):
     available_bones_index: bpy.props.IntProperty(default=-1)
     available_keys_index: bpy.props.IntProperty(default=-1)
     relative_root: bpy.props.BoolProperty(default=False, name="Relative Root",
-                                          description="When overwriting motion, import the motion root relative to the motion root being overwritten")
+                                          description="Source motion root bone transform will match the destination motion at the starting frame",
+                                          update=update_blend_root_relative)
+    current_root: bpy.props.BoolProperty(default=False, name="Current Root",
+                                          description="Source motion root bone transform will match the current root bone transform in the scene",
+                                          update=update_blend_root_current)
     use_blend: bpy.props.BoolProperty(default=False, name="Blend Frames",
-                                          description="Blend Frames from the incoming / selected motion into the existing motion")
+                                          description="Blend Frames from the source motion into the destination motion")
     blend_strength: bpy.props.FloatProperty(default=1.0, name="Blend Strength",
                                             min=0.0, soft_min=0.0, soft_max=1.0,
                                             description="Blend Strength")
-    blend_in_frames: bpy.props.IntProperty(default=0, name="Blend In",
+    blend_in_frames: bpy.props.IntProperty(default=0, name="Blend In Frames",
                                            min=0, soft_max=1000,
-                                           description="Blend In")
-    blend_out_frames: bpy.props.IntProperty(default=0, name="Blend Out",
+                                           description="The number of frames at the start of the source or imported motion to blend in from the target motion")
+    blend_out_frames: bpy.props.IntProperty(default=0, name="Blend Out Frames",
                                             min=0, soft_max=1000,
-                                            description="Blend Out")
+                                            description="The number of frames at the end of the source or imported motion to blend out to the target motion")
     action_store: bpy.props.CollectionProperty(type=CCICActionStore)
+    source_motion: bpy.props.PointerProperty(type=bpy.types.Action)
+    target_motion: bpy.props.PointerProperty(type=bpy.types.Action)
+    motion_prefix: bpy.props.StringProperty(default="Blend")
+    motion_id: bpy.props.StringProperty(default="New Motion")
+    show_blend_options: bpy.props.BoolProperty(default=True)
+    show_bone_mask_options: bpy.props.BoolProperty(default=True)
+    show_key_mask_options: bpy.props.BoolProperty(default=True)
+    mode_save_bone_mask: bpy.props.BoolProperty(default=False)
+    mode_save_key_mask: bpy.props.BoolProperty(default=False)
+    preset_bone_mask_name: bpy.props.StringProperty(default="New Bone Mask Preset")
+    preset_key_mask_name: bpy.props.StringProperty(default="New Key Mask Preset")
     # some masking settings ...
     # some masking presets ...
     # export / import presets ...
@@ -3287,6 +3350,9 @@ class CC3ImportProps(bpy.types.PropertyGroup):
     unity_action_list_action: bpy.props.PointerProperty(type=bpy.types.Action)
     rigified_action_list_index: bpy.props.IntProperty(default=-1)
     rigified_action_list_action: bpy.props.PointerProperty(type=bpy.types.Action)
+
+    blend_mask_bone_presets: bpy.props.EnumProperty(items=blend_mask_bone_preset_list, default=0, description="Presets for motion blend bone masking", name="Blend Mask Bone Presets")
+    blend_mask_key_presets: bpy.props.EnumProperty(items=blend_mask_key_preset_list, default=0, description="Presets for motion blend shape key masking", name="Blend Mask Shape Key Presets")
 
     wrinkle_regions: bpy.props.EnumProperty(items=[
                         ("ALL", "All", "All Regions"),

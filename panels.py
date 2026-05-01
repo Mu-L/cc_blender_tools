@@ -2733,7 +2733,7 @@ def motion_set_ui(layout: bpy.types.UILayout, chr_cache, show_nla=False):
     col_2.separator()
     col_1.operator("ccic.rigutils", icon="PLUS", text="New").param = "NEW_ACTION_SET"
     col_2.operator("ccic.rigutils", icon="MODIFIER_ON", text="Clean").param = "CLEAN_ACTIONS"
-    col.operator("ccic.motion_blend", icon="MOD_ENVELOPE", text="Blend / Merge").param="BLEND"
+    col.operator("ccic.motion_blend", icon="MOD_ENVELOPE", text="Blend Motions").param="BLEND"
 
 
     if show_nla:

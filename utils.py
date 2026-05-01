@@ -265,7 +265,7 @@ def unique_object_name(name, obj=None, capitalize=False, start_index=1, suffix="
 
 def un_suffix_name(name):
     """Removes any combination of numerical suffixes from the end of a string"""
-    base_name = re.sub("([._+|/\,]\d+)*$", "", name)
+    base_name = re.sub("([._+|/\\,]\\d+)*$", "", name)
     return base_name
 
 
@@ -2322,7 +2322,7 @@ def get_action_fcurves(action: bpy.types.Action) -> List[bpy.types.FCurve]:
     return fcurves
 
 
-def get_action_channelbag(action: bpy.types.Action, slot=None, slot_type=None) -> bpy.types.ActionChannelbag:
+def get_action_channelbag(action: bpy.types.Action, slot=None, slot_type=None):
     if not action:
         return None
     if B440() and (slot or slot_type):
@@ -2785,7 +2785,46 @@ def reset_shape_keys(objects, exclude=None):
                     key.value = 0.0
 
 
-INVALID_EXPORT_CHARACTERS = "`¬!\"£$%^&*()+-=[]{}:@~;'#<>?,./\| "
+def ui_two_column_layout(layout: bpy.types.UILayout, widths: tuple, align=False):
+    factor = widths[0] / (widths[0] + widths[1])
+    split = layout.split(factor=factor, align=align)
+    col_1 = split.column(align=align)
+    col_2 = split.column(align=align)
+    return col_1, col_2
+
+
+def ui_three_column_layout(layout: bpy.types.UILayout, widths: tuple, align=False):
+    factor_1 = widths[0] / (widths[0] + widths[1] + widths[2])
+    factor_2 = widths[1] / (widths[1] + widths[2])
+    split_1 = layout.split(factor=factor_1, align=align)
+    col_1 = split_1.column(align=align)
+    col_2 = split_1.column(align=align)
+    split_2 = col_2.split(factor=factor_2, align=align)
+    col_3 = split_2.column(align=align)
+    col_4 = split_2.column(align=align)
+    return col_1, col_3, col_4
+
+
+def ui_fake_drop_down(layout: bpy.types.UILayout, label: str,
+                      props: any, prop_name: str,
+                      icon = "TRIA_DOWN", icon_closed = "TRIA_RIGHT",
+                      align="LEFT"):
+    row = layout.row()
+    row.alignment="LEFT"
+    prop_bool_value = getattr(props, prop_name)
+    if prop_bool_value:
+        row.prop(props, prop_name, icon=icon, text=label, emboss=False)
+    else:
+        row.prop(props, prop_name, icon=icon_closed, text=label, emboss=False)
+    if icon != "TRIA_DOWN":
+        if prop_bool_value:
+            row.prop(props, prop_name, icon="TRIA_DOWN", icon_only=True, emboss=False)
+        else:
+            row.prop(props, prop_name, icon="TRIA_RIGHT", icon_only=True, emboss=False)
+    return prop_bool_value
+
+
+INVALID_EXPORT_CHARACTERS = "`¬!\"£$%^&*()+-=[]{}:@~;'#<>?,./\\| "
 DIGITS = "0123456789"
 
 

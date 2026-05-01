@@ -5267,14 +5267,14 @@ class CCICMotionBlendFunctions(bpy.types.Operator):
         if type == "BONE":
             collection = opts.import_bones
             preset_name = opts.preset_bone_mask_name
-            suffix = "bone"
+            suffix = "Bone"
         else:
             collection = opts.import_keys
             preset_name = opts.preset_key_mask_name
-            suffix = "key"
+            suffix = "Key"
         if collection:
             folder = utils.get_resource_folder("Presets")
-            file_name = os.path.join(folder, f"{preset_name}_{suffix}.json")
+            file_name = os.path.join(folder, f"{suffix}_{preset_name}.json")
             json_data = {}
             for item in collection:
                 json_data[item.name] = item.weight
@@ -5290,15 +5290,15 @@ class CCICMotionBlendFunctions(bpy.types.Operator):
             available = opts.available_bones
             collection = opts.import_bones
             preset_name = props.blend_mask_bone_presets
-            suffix = "bone"
+            suffix = "Bone"
         else:
             available = opts.available_keys
             collection = opts.import_keys
             preset_name = props.blend_mask_key_presets
-            suffix = "key"
+            suffix = "Key"
         if collection is not None:
             folder = utils.get_resource_folder("Presets")
-            file_name = os.path.join(folder, f"{preset_name}_{suffix}.json")
+            file_name = os.path.join(folder, f"{suffix}_{preset_name}.json")
             file = open(file_name, "rt")
             text_data = file.read()
             file.close()

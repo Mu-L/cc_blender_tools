@@ -602,10 +602,10 @@ def clean_collection_property(collection_prop):
 def blend_mask_bone_preset_list(self, context):
     preset_list = [("NONE", "Bone Mask Presets ...", "Bone Presets ...", 0)]
     folder = utils.get_resource_folder("Presets")
-    json_files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)) and f.endswith("_bone.json")]
+    json_files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)) and f.startswith("Bone_") and f.endswith(".json")]
     i = 1
     for file in json_files:
-        preset_name = file[:-10]
+        preset_name = file[5:-5]
         preset_list.append((preset_name, preset_name, preset_name, i))
         i += 1
     return preset_list
@@ -614,10 +614,10 @@ def blend_mask_bone_preset_list(self, context):
 def blend_mask_key_preset_list(self, context):
     preset_list = [("NONE", "Shape Key Mask Presets ...", "Key Presets ...", 0)]
     folder = utils.get_resource_folder("Presets")
-    json_files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)) and f.endswith("_key.json")]
+    json_files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)) and f.startswith("Key_") and f.endswith(".json")]
     i = 1
     for file in json_files:
-        preset_name = file[:-9]
+        preset_name = file[4:-5]
         preset_list.append((preset_name, preset_name, preset_name, i))
         i += 1
     return preset_list

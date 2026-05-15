@@ -34,7 +34,17 @@ Links
 ## Changelog
 
 ### 2.4.1
--
+- Mesh modify pipeline.
+    - Sends mesh only (no armature) for exact replace mesh updates.
+    - Used mainly for direct facial expression editing with the facial profile editor.
+- Animation Import Options and Blending:
+    - Animations and be blended on imported or motions can be blended together to create new motions.
+    - Root Relative: Source animation root bone is transformed relative to the starting frame on destination animation, so that the root bone follows on from the exiting animation.
+    - Motion Blending: Source animation blends in and out over the destination animation by the set number of frames and follows custom blend curves. For smooth transitions.
+    - Bone masking: Only the masked bones are blended into the destination animation. Each bone can be weighted individually.
+    - Shape Key masking: Only the masked shape keys are blended into the destination animation. Each shape key can be weighted individually.
+    - Blend mask presets: Can be applied, removed and saved.
+- Fixes to compositor texture pack baking.
 
 ### 2.4.0
 - Displacement update for Skin and Pbr materials.

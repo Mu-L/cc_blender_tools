@@ -1338,6 +1338,44 @@ def store_source_bone_data(chr_cache, cc3_rig, rigify_rig, rigify_data):
 
     store_expression_set(chr_cache, cc3_rig, rigify_rig, rigify_data)
 
+def is_valid_expression_def(expression, expression_def):
+    if "Bones" in expression_def:
+        for bone_name, bone_def in expression_def["Bones"].items():
+            if "Translate" in bone_def and "Rotation" in bone_def:
+                tra = utils.array_to_vector(bone_def["Translate"])
+                rot = utils.array_to_quaternion(bone_def["Rotation"])
+                if tra.length > 0.001 or rot.angle > 0.001:
+                    return True
+            else:
+                utils.log_detail(f"{expression}/{bone_name} has missing translate/rotate data")
+                return False
+        utils.log_detail(f"{expression} has bad translate/rotate data")
+        return False
+    utils.log_detail(f"{expression} has missing bone data")
+    return False
+
+
+def merge_missing_expression_set(expression_json, default_expression_json):
+    # merge missing values from default expression set
+    if default_expression_json:
+        for expression, default_expression_def in default_expression_json.items():
+            if expression not in expression_json:
+                expression_json[expression] = copy.deepcopy(default_expression_def)
+            expression_def = expression_json[expression]
+            if (not is_valid_expression_def(expression, expression_def) and
+                "Bones" in default_expression_def):
+                expression_def["Bones"] = copy.deepcopy(default_expression_def["Bones"])
+            if False:
+                for bone_name, default_bone_def in default_expression_def["Bones"].items():
+                    if bone_name not in expression_def["Bones"]:
+                        expression_def["Bones"][bone_name] = copy.deepcopy(default_expression_def["Bones"][bone_name])
+                    else:
+                        bone_def = expression_def["Bones"][bone_name]
+                        if "Translate" in default_bone_def and "Translate" not in bone_def:
+                            bone_def["Translate"] = default_bone_def["Translate"].copy()
+                        if "Rotation" in default_bone_def and "Rotation" not in bone_def:
+                            bone_def["Rotation"] = default_bone_def["Rotation"].copy()
+
 
 def store_expression_set(chr_cache, cc3_rig, rigify_rig=None, rigify_data=None):
     """Store source bone data from the cc3 rig in the org and def bones of rigify rig.
@@ -1364,6 +1402,9 @@ def store_expression_set(chr_cache, cc3_rig, rigify_rig=None, rigify_data=None):
         json_data = chr_cache.get_json_data()
 
         expression_json = chr_cache.get_expression_json(json_data)
+        default_expression_json = chr_cache.get_default_expression_json()
+        if default_expression_json:
+            merge_missing_expression_set(expression_json, default_expression_json)
 
         utils.clear_prop_collection(chr_cache.expression_set)
         if expression_json:
@@ -1406,8 +1447,14 @@ def store_expression_set(chr_cache, cc3_rig, rigify_rig=None, rigify_data=None):
                                     expression_cache.offset_translation = OR_tra
                                     expression_cache.offset_rotation = OR_euler
                         else:
-                            tra = utils.array_to_vector(expression_def["Bones"][bone_name]["Translate"])
-                            rot = utils.array_to_quaternion(expression_def["Bones"][bone_name]["Rotation"])
+                            try:
+                                tra = utils.array_to_vector(expression_def["Bones"][bone_name]["Translate"])
+                            except:
+                                tra = Vector((0,0,0))
+                            try:
+                                rot = utils.array_to_quaternion(expression_def["Bones"][bone_name]["Rotation"])
+                            except:
+                                rot = Quaternion((1,0,0,0))
                             pba: bpy.types.PoseBone = cc3_rig.pose.bones[bone_name]
                             tra_local = pba.bone.matrix.inverted() @ tra
                             rot_euler = rot.to_euler("XYZ")
@@ -4145,7 +4192,7 @@ class CC3Rigifier(bpy.types.Operator):
                     fix_rigify_bones(chr_cache, self.rigify_rig)
                     add_def_bones(chr_cache, self.cc3_rig, self.rigify_rig)
                     add_extension_bones(chr_cache, self.cc3_rig, self.rigify_rig, self.rigify_data.bone_mapping, acc_vertex_group_map)
-                    store_source_bone_data(self.cc3_rig, self.rigify_rig, self.rigify_data)
+                    store_source_bone_data(chr_cache, self.cc3_rig, self.rigify_rig, self.rigify_data)
                     rigify_spring_rigs(chr_cache, self.cc3_rig, self.rigify_rig, self.rigify_data.bone_mapping)
                     if self.use_expression_rig(chr_cache):
                         facerig.build_facerig_drivers(chr_cache, self.rigify_rig)
@@ -4588,6 +4635,7 @@ class CC3RigifierModal(bpy.types.Operator):
     def voxel_heat_skinning_start(self, context):
         # fix cc3 rig (bone lengths & deform settings)
         arm = self.chr_cache.get_armature()
+        utils.unhide(arm)
         rigutils.fix_cc3_standard_rig(arm)
 
         # unparent object(s) keep transform

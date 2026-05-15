@@ -21,6 +21,7 @@ if "bpy" in locals():
     importlib.reload(vars)
     importlib.reload(params)
     importlib.reload(utils)
+    importlib.reload(ui)
     importlib.reload(lib)
     importlib.reload(cc)
     importlib.reload(jsonutils)
@@ -69,6 +70,7 @@ from . import preferences
 from . import vars
 from . import params
 from . import utils
+from . import ui
 from . import lib
 from . import cc
 from . import jsonutils
@@ -114,7 +116,7 @@ from . import rlx
 bl_info = {
     "name": "CC/iC Tools",
     "author": "Victor Soupday",
-    "version": (2, 4, 0),
+    "version": (2, 4, 1),
     "blender": (3, 4, 1),
     "category": "Characters",
     "location": "3D View > Properties > CC/iC Pipeline",
@@ -139,8 +141,8 @@ classes = (
     properties.CCICBakeProps,
     properties.CC3ActionList,
     properties.CC3ArmatureList,
+    properties.CCICStringList,
     properties.CCIC_UI_MixItem,
-    properties.CCIC_UI_MixList,
     properties.CCICActionStore,
     properties.CCICActionOptions,
     properties.CC3HeadParameters,
@@ -206,10 +208,11 @@ classes = (
     rigutils.CCICMotionSetRename,
     rigutils.CCICMotionSetInfo,
     rigutils.CCICRigUtils,
-    rigutils.CCIC_ImportMixBones_UL_List,
-    rigutils.CCIC_RigMixBones_UL_List,
+    rigutils.CCIC_IMPORTMIX_UL_List,
+    rigutils.CCIC_AVAILABLEMIX_UL_List,
     rigutils.CCICActionImportFunctions,
-    rigutils.CCICActionImportOptions,
+    rigutils.CCICMotionBlendFunctions,
+    rigutils.CCICMotionBlend,
     facerig.CCICImportARKitCSV,
 
     panels.ARMATURE_UL_List,

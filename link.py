@@ -42,6 +42,7 @@ class OpCodes(IntEnum):
     FPS = 80
     MORPH = 90
     MORPH_UPDATE = 91
+    MESH = 92
     REPLACE_MESH = 95
     MATERIALS = 96
     CHARACTER = 100
@@ -126,7 +127,8 @@ class LinkActor():
     def __init__(self, obj_or_chr_cache):
         if type(obj_or_chr_cache) is bpy.types.Object:
             self.object = obj_or_chr_cache
-            self.name = obj_or_chr_cache.name
+            rl_name = utils.get_prop(obj_or_chr_cache, "rl_name")
+            self.name = rl_name if rl_name else obj_or_chr_cache.name
         else:
             self.object = None
             self.chr_cache = obj_or_chr_cache
@@ -432,6 +434,21 @@ class LinkActor():
             return chr_cache.can_go_ic()
         return False
 
+    def is_obj(self):
+        chr_cache = self.get_chr_cache()
+        if chr_cache:
+            return chr_cache.is_obj()
+        return False
+
+    def is_posable(self):
+        actor_type = self.get_type()
+        if actor_type == "LIGHT" or actor_type == "CAMERA":
+            return True
+        else:
+            chr_cache = self.get_chr_cache()
+            if chr_cache:
+                return chr_cache.get_armature() is not None
+        return False
 
 class LinkData():
     actors: list = []
@@ -441,6 +458,7 @@ class LinkData():
     sequence_end_frame: int = 0
     sequence_actors: list = None
     sequence_type: str = None
+    sequence_selection: List[bpy.types.Object] = None
     scene_current_frame: int = 0
     #
     sequence_action_mode: str = ""
@@ -1388,15 +1406,15 @@ def write_sequence_actions(actor: LinkActor, num_frames, start_frame):
             if rig_action:
                 action_mode, frame_mode = actor.get_import_modes()
                 rigutils.load_motion_set(rig, rig_action)
-                rigutils.finalize_motion_import(rig, rig_action, actor.action_store_id, action_mode)
+                rigutils.finalize_motion_import(actor.get_chr_cache(), rig, rig_action, actor.action_store_id, action_mode)
 
         elif actor.get_type() == "LIGHT":
 
             light = actor.object
             ob_action = utils.safe_get_action(light)
             light_action = utils.safe_get_action(light.data)
-            ob_slot = utils.get_action_slot(ob_action, "OBJECT")
-            light_slot = utils.get_action_slot(light_action, "LIGHT")
+            ob_slot = utils.get_action_slot(ob_action, slot_type="OBJECT")
+            light_slot = utils.get_action_slot(light_action, slot_type="LIGHT")
             write_action_cache_curve(ob_action, actor.cache["transform"], "loc", "location", num_frames, "Location", slot=ob_slot, reduce=True)
             write_action_rotation_cache_curve(ob_action, actor.cache["transform"], "rot", light, num_frames, slot=ob_slot, reduce=True)
             write_action_cache_curve(ob_action, actor.cache["transform"], "sca", "scale", num_frames, "Scale", slot=ob_slot, reduce=True)
@@ -1418,8 +1436,8 @@ def write_sequence_actions(actor: LinkActor, num_frames, start_frame):
             camera = actor.object
             ob_action = utils.safe_get_action(camera)
             cam_action = utils.safe_get_action(camera.data)
-            ob_slot = utils.get_action_slot(ob_action, "OBJECT")
-            cam_slot = utils.get_action_slot(cam_action, "CAMERA")
+            ob_slot = utils.get_action_slot(ob_action, slot_type="OBJECT")
+            cam_slot = utils.get_action_slot(cam_action, slot_type="CAMERA")
             write_action_cache_curve(ob_action, actor.cache["transform"], "loc", "location", num_frames, "Location", slot=ob_slot, reduce=True)
             write_action_rotation_cache_curve(ob_action, actor.cache["transform"], "rot", camera, num_frames, slot=ob_slot, reduce=True)
             write_action_cache_curve(ob_action, actor.cache["transform"], "sca", "scale", num_frames, "Scale", slot=ob_slot, reduce=True)
@@ -1885,6 +1903,9 @@ class LinkService():
         elif op_code == OpCodes.MORPH_UPDATE:
             self.receive_morph(data, update=True)
 
+        elif op_code == OpCodes.MESH:
+            self.receive_mesh_modify(data)
+
         elif op_code == OpCodes.CHARACTER:
             self.receive_actor_import(data)
 
@@ -2258,6 +2279,13 @@ class LinkService():
             return actor
         return None
 
+    def actors_contains_id(self, actors, link_id):
+        actor: LinkActor = None
+        for actor in actors:
+            if actor.get_link_id() == link_id:
+                return True
+        return False
+
     def get_selected_actors(self):
         global LINK_DATA
         props = vars.props()
@@ -2282,9 +2310,12 @@ class LinkService():
             actors.append(actor)
 
         for obj in selected_objects:
-            if obj.type == "LIGHT" or obj.type == "CAMERA" and utils.get_rl_link_id(obj):
-                actor = LinkActor(obj)
-                actors.append(actor)
+            link_id = utils.get_rl_link_id(obj)
+            if link_id:
+                if obj.type == "LIGHT" or obj.type == "CAMERA" or utils.get_prop(obj, "rl_mesh_modify"):
+                    if not self.actors_contains_id(actors, link_id):
+                        actor = LinkActor(obj)
+                        actors.append(actor)
 
         return actors
 
@@ -2418,12 +2449,59 @@ class LinkService():
                                     use_normals=True,
                                     keep_vertex_order=keep_vertex_order)
 
-    def send_replace_mesh(self):
+    def send_mesh_modify_request(self):
+        self.send_request("MESH_MODIFY")
+
+    def send_mesh_modify(self):
+        global LINK_DATA
         state = utils.store_mode_selection_state()
-        objects = utils.get_selected_meshes()
+        objects = utils.get_selected_meshes(selection=LINK_DATA.sequence_selection)
+        count = 0
+        for obj in objects:
+            if obj.type == "MESH":
+                if utils.get_prop(obj, "rl_mesh_modify"):
+                    link_id = utils.get_prop(obj, "rl_link_id")
+                    type = utils.get_prop(obj, "rl_type")
+                    name = utils.get_prop(obj, "rl_name")
+                    if link_id:
+                        object_name = utils.strip_name(obj.name)
+                        mesh_name = utils.strip_name(obj.data.name)
+                        export_path = self.get_export_path("Meshes", f"{obj.name}_mesh.obj",
+                                                           reuse_folder=True, reuse_file=True)
+                    utils.set_active_object(obj, deselect_all=True)
+                    self.obj_export(export_path, use_selection=True, use_vertex_colors=False)
+                    export_data = encode_from_json({
+                        "path": export_path,
+                        "actor_name": name,
+                        "object_name": object_name,
+                        "mesh_name": mesh_name,
+                        "type": type,
+                        "morph": False,
+                        "link_id": link_id,
+                    })
+                    self.send(OpCodes.REPLACE_MESH, export_data)
+                    update_link_status(f"Sent Mesh: {obj.name}")
+                    count += 1
+
+        utils.restore_mode_selection_state(state)
+
+        LINK_DATA.sequence_selection = None
+        LINK_DATA.sequence_actors = None
+        LINK_DATA.sequence_type = None
+
+        return count
+
+    def send_replace_mesh_request(self):
+        self.send_request("REPLACE_MESH")
+
+    def send_replace_mesh(self):
+        global LINK_DATA
+        state = utils.store_mode_selection_state()
+        objects = utils.get_selected_meshes(selection=LINK_DATA.sequence_selection)
         # important that character is in the exact same pose on both sides,
         # so make sure the character is on the same frame in the animation.
-        self.send_frame_sync()
+        # send pose updates for actors
+        self.send_pose()
         count = 0
         for obj in objects:
             if obj.type == "MESH":
@@ -2445,6 +2523,7 @@ class LinkService():
                         "object_name": object_name,
                         "mesh_name": mesh_name,
                         "type": actor.get_type(),
+                        "morph": actor.is_obj(),
                         "link_id": actor.get_link_id(),
                     })
                     self.send(OpCodes.REPLACE_MESH, export_data)
@@ -2524,6 +2603,8 @@ class LinkService():
 
         actor: LinkActor
         for actor in actors:
+
+            if not actor.is_posable(): continue
 
             if actor.get_type() in ["PROP", "AVATAR"]:
 
@@ -2643,19 +2724,24 @@ class LinkService():
         }
         actor: LinkActor
         for actor in actors:
-            actors_data.append({
-                "name": actor.name,
-                "type": actor.get_type(),
-                "link_id": actor.get_link_id(),
-            })
+            if actor.is_posable():
+                actors_data.append({
+                    "name": actor.name,
+                    "type": actor.get_type(),
+                    "link_id": actor.get_link_id(),
+                })
         return encode_from_json(data)
 
     def encode_pose_frame_data(self, actors: list):
         pose_bone: bpy.types.PoseBone
         data = bytearray()
-        data += struct.pack("!II", len(actors), BFA(bpy.context.scene.frame_current))
+        pose_actors = [ a for a in actors if a.is_posable() ]
+        data += struct.pack("!II", len(pose_actors), BFA(bpy.context.scene.frame_current))
         actor: LinkActor
-        for actor in actors:
+        for actor in pose_actors:
+
+            if not actor.is_posable(): continue
+
             actor_type = actor.get_type()
 
             data += pack_string(actor.name)
@@ -2789,11 +2875,12 @@ class LinkService():
         }
         actor: LinkActor
         for actor in actors:
-            actors_data.append({
-                "name": actor.name,
-                "type": actor.get_type(),
-                "link_id": actor.get_link_id(),
-            })
+            if actor.is_posable():
+                actors_data.append({
+                    "name": actor.name,
+                    "type": actor.get_type(),
+                    "link_id": actor.get_link_id(),
+                })
         return encode_from_json(data)
 
     def restore_actor_rigs(self, actors: LinkActor):
@@ -2808,20 +2895,22 @@ class LinkService():
                 # remove the export rigs
                 utils.delete_armature_object(chr_cache.rig_export_rig)
 
-    def send_request(self, request_type):
+    def send_request(self, request_type, actors=None):
         global LINK_DATA
         # get actors
-        actors = self.get_selected_actors()
+        if not actors:
+            actors = self.get_selected_actors()
         if actors:
             mode_selection = utils.store_mode_selection_state()
             update_link_status(f"Sending Request")
             self.send_notify(f"Request")
             # send request
-            pose_data = self.encode_request_data(actors, request_type)
-            self.send(OpCodes.REQUEST, pose_data)
+            request_data = self.encode_request_data(actors, request_type)
+            self.send(OpCodes.REQUEST, request_data)
             # store the actors
             LINK_DATA.sequence_actors = actors
             LINK_DATA.sequence_type = request_type
+            LINK_DATA.sequence_selection = bpy.context.selected_objects.copy()
             # restore
             utils.restore_mode_selection_state(mode_selection)
 
@@ -2876,6 +2965,10 @@ class LinkService():
             self.send_pose()
         elif request_type == "SEQUENCE":
             self.send_sequence()
+        elif request_type == "REPLACE_MESH":
+            self.send_replace_mesh()
+        elif request_type == "MESH_MODIFY":
+            self.send_mesh_modify()
         return
 
     def send_pose(self):
@@ -2883,7 +2976,7 @@ class LinkService():
 
         # get actors
         if not LINK_DATA.sequence_actors:
-            LINK_DATA.sequence_actors = self.get_selected_actors()
+            LINK_DATA.sequence_actors = self.get_selected_actors(pose_only=True)
         actors = LINK_DATA.sequence_actors
 
         if actors:
@@ -2908,6 +3001,7 @@ class LinkService():
             self.restore_actor_rigs(LINK_DATA.sequence_actors)
             LINK_DATA.sequence_actors = None
             LINK_DATA.sequence_type = None
+            LINK_DATA.sequence_selection = None
             # restore
             utils.restore_mode_selection_state(mode_selection)
 
@@ -2930,7 +3024,7 @@ class LinkService():
 
         # get actors
         if not LINK_DATA.sequence_actors:
-            LINK_DATA.sequence_actors = self.get_selected_actors()
+            LINK_DATA.sequence_actors = self.get_selected_actors(pose_only=True)
         actors = LINK_DATA.sequence_actors
 
         if actors:
@@ -2978,6 +3072,7 @@ class LinkService():
         self.restore_actor_rigs(LINK_DATA.sequence_actors)
         LINK_DATA.sequence_actors = None
         LINK_DATA.sequence_type = None
+        LINK_DATA.sequence_selection = None
 
     def send_sequence_ack(self, frame):
         global LINK_DATA
@@ -3585,6 +3680,7 @@ class LinkService():
         # finish
         LINK_DATA.sequence_actors = None
         LINK_DATA.sequence_type = None
+        LINK_DATA.sequence_selection = None
         if LINK_DATA.set_keyframes:
             bpy.context.scene.frame_current = opt_frame
         utils.restore_mode_selection_state(state, include_frames=False)
@@ -3758,6 +3854,7 @@ class LinkService():
         self.stop_sequence()
         LINK_DATA.sequence_actors = None
         LINK_DATA.sequence_type = None
+        LINK_DATA.sequence_selection = None
         #bpy.context.scene.frame_current = LINK_DATA.sequence_start_frame
 
         # play the recorded sequence
@@ -4169,7 +4266,7 @@ class LinkService():
 
             if actor_rig and incoming_motion_action:
                 action_mode, frame_mode = actor.get_import_modes()
-                rigutils.finalize_motion_import(actor_rig, incoming_motion_action, action_store_id, action_mode)
+                rigutils.finalize_motion_import(actor.get_chr_cache(), actor_rig, incoming_motion_action, action_store_id, action_mode)
 
             utils.log_recess()
 
@@ -4246,6 +4343,46 @@ class LinkService():
                 dest = actor.get_chr_cache().object_cache[0].object
                 geom.copy_vert_positions_by_index(source, dest)
                 utils.delete_mesh_object(source)
+
+    def receive_mesh_modify(self, data):
+        props = vars.props()
+        global LINK_DATA
+
+        props.validate_and_clean_up()
+
+        # decode receive morph
+        json_data = decode_to_json(data)
+        obj_path = json_data.get("path")
+        remote_id = json_data.get("remote_id")
+        obj_path = self.get_remote_file(remote_id, obj_path)
+        name = json_data["name"]
+        character_type = json_data["type"]
+        link_id = json_data["link_id"]
+        utils.log_info(f"Receive Mesh Modify: {name} / {link_id} / {obj_path}")
+
+        update_link_status(f"Receving Mesh Modify: {name}")
+        if os.path.exists(obj_path):
+            mss = utils.store_mode_selection_state()
+            print(mss)
+            # remove old mesh modify
+            remove = []
+            for obj in bpy.data.objects:
+                if utils.get_prop(obj, "rl_mesh_modify") and utils.get_prop(obj, "rl_link_id") == link_id:
+                    remove.append(obj)
+            for obj in remove:
+                utils.delete_object(obj)
+            # import new mesh modify
+            old_objects = utils.get_set(bpy.data.objects)
+            importer.obj_import(obj_path, split_objects=True, split_groups=True, vgroups=False)
+            objects = utils.get_set_new(bpy.data.objects, old_objects)
+            # update mesh modify
+            for source in objects:
+                utils.set_rl_link_id(source, link_id)
+                utils.set_prop(source, "rl_mesh_modify", True)
+                utils.set_prop(source, "rl_name", name)
+                utils.set_prop(source, "rl_type", character_type)
+                source.scale = (0.01, 0.01, 0.01)
+            utils.restore_mode_selection_state(mss)
 
     def receive_update_replace(self, data):
         props = vars.props()
@@ -4703,18 +4840,15 @@ class CCICDataLink(bpy.types.Operator):
                     self.report({'ERROR'}, f"Morph not sent!")
                 return {'FINISHED'}
 
+            elif self.param == "SEND_MESH_MODIFY":
+                LINK_SERVICE.send_mesh_modify_request()
+
             elif self.param == "SYNC_CAMERA":
                 LINK_SERVICE.send_camera_sync()
                 return {'FINISHED'}
 
             elif self.param == "SEND_REPLACE_MESH":
-                count = LINK_SERVICE.send_replace_mesh()
-                if count == 1:
-                    self.report({'INFO'}, f"Replace Mesh sent ...")
-                elif count > 1:
-                    self.report({'INFO'}, f"{count} Replace Meshes sent ...")
-                else:
-                    self.report({'ERROR'}, f"No Replace Meshes sent!")
+                LINK_SERVICE.send_replace_mesh_request()
                 return {'FINISHED'}
 
             elif self.param == "SEND_MATERIAL_UPDATE":

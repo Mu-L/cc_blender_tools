@@ -274,8 +274,8 @@ class CC3ToolsAddonPreferences(bpy.types.AddonPreferences):
                                              description="When importing and retargeting animations, use action slots to combine armature and shape key actions into a single action",
                                              name="Use Action Slots")
     action_add_key_slots_per_obj: bpy.props.BoolProperty(default=True,
-                                             description="When using action slots, generate an slot channel specifically for each object's shape keys. " \
-                                                         "Otherwise, use only a single shapekey channel for all mesh obejcts",
+                                             description="When using action slots, generate a shape key slot for each object. " \
+                                                         "Otherwise, use only a single shape key slot for all mesh objects",
                                              name="Action Key Slots Per Obj")
     action_clean_actions: bpy.props.BoolProperty(default=False,
                                              description="When loading motions onto character, clean up (remove redundant) action keyframes",

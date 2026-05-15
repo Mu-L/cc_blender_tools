@@ -17,8 +17,8 @@
 import bpy
 from mathutils import Vector, Matrix, Quaternion, Euler
 from random import random
-import re, time, os
-from . import springbones, bones, facerig, modifiers, rigify_mapping_data, lib, utils, vars
+import re, time, os, json
+from . import springbones, bones, facerig, modifiers, rigify_mapping_data, lib, ui, utils, vars
 from typing import List
 
 
@@ -662,12 +662,14 @@ def get_motion_set_actions(action_or_set_id):
 
 
 def get_actions_frame_range(actions):
+    if not type(actions) is list:
+        actions = [actions]
     action: bpy.types.Action = None
     frame_start = None
     frame_end = None
     for action in actions:
-        start = action.frame_range[0]
-        end = action.frame_range[1]
+        start = int(action.frame_range[0])
+        end = int(action.frame_range[1])
         if frame_start is None:
             frame_start = start
             frame_end = end
@@ -1229,6 +1231,7 @@ def duplicate_motion_set(source_action):
     arm_id = utils.get_prop(source_action, "rl_armature_id", None)
     new_set_id = generate_set_id()
     duplicates = []
+    new_action = None
     if set_id:
         for action in bpy.data.actions:
             action_set_id = utils.get_prop(action, "rl_set_id")
@@ -1241,8 +1244,42 @@ def duplicate_motion_set(source_action):
                 duplicate_action = action.copy()
                 add_motion_set_data(duplicate_action, new_set_id, set_generation, obj_id, arm_id, slotted=is_slotted)
                 duplicates.append(duplicate_action)
+                if action_type_id == "SLOTTED" or action_type_id == "ARMATURE":
+                    new_action = duplicate_action
     update_motion_set_index(source_action)
     utils.update_ui(all=True)
+    return new_action
+
+
+def get_new_motion_set_action_name(action_type, set_id, prefix, rig_id, motion_id):
+    motion_id = get_unique_set_motion_id(rig_id, motion_id, prefix,
+                                         exclude_set_id=set_id,
+                                         slotted=(action_type == "SLOTTED"))
+    name = ""
+    if action_type == "SLOTTED":
+        name = make_armature_action_name(rig_id, motion_id, prefix, slotted=True)
+    else:
+        name = make_armature_action_name(rig_id, motion_id, prefix, slotted=False)
+    return name
+
+
+def rename_motion_set(action_type, set_id, prefix, rig_id, motion_id):
+    motion_id = get_unique_set_motion_id(rig_id, motion_id, prefix,
+                                         exclude_set_id=set_id,
+                                         slotted=(action_type == "SLOTTED"))
+    for action in bpy.data.actions:
+        if "rl_set_id" in action:
+            if action["rl_set_id"] == set_id:
+                set_id, set_generation, action_type_id, obj_id = get_motion_set_ids(action)
+                if action_type_id == "ARM":
+                    name = make_armature_action_name(rig_id, motion_id, prefix, slotted=False)
+                    action.name = name
+                elif action_type_id == "KEY":
+                    name = make_key_action_name(rig_id, motion_id, obj_id, prefix)
+                    action.name = name
+                elif action_type_id == "SLOTTED":
+                    name = make_armature_action_name(rig_id, motion_id, prefix, slotted=True)
+                    action.name = name
 
 
 def rename_armature(arm, name):
@@ -2528,726 +2565,9 @@ def de_pivot(chr_cache):
 
 
 
-class CCICMotionSetFunctions(bpy.types.Operator):
-    bl_idname = "ccic.motion_set_funcs"
-    bl_label = "Motion Set Functions"
-    bl_options = {"REGISTER", "UNDO", "INTERNAL"}
 
-    param: bpy.props.StringProperty(
-            name = "param",
-            default = ""
-        )
 
-    def execute(self, context):
-        props = vars.props()
-
-        props.store_ui_list_indices()
-        action = props.action_set_list_action
-        #chr_cache = props.get_context_character_cache(context)
-
-        if self.param == "DELETE":
-            delete_motion_set(action)
-
-        elif self.param == "DUPLICATE":
-            duplicate_motion_set(action)
-
-        return {"FINISHED"}
-
-    @classmethod
-    def description(cls, context, properties):
-        return "Show motion set info"
-
-
-class CCICMotionSetRename(bpy.types.Operator):
-    bl_idname = "ccic.motion_set_rename"
-    bl_label = "Rename Motion Set"
-
-    action: bpy.props.StringProperty(name="Action", default="")
-    prefix: bpy.props.StringProperty(name="Motion Prefix", default="")
-    rig_id: bpy.props.StringProperty(name="Character / Rig ID", default="")
-    motion_id: bpy.props.StringProperty(name="Motion Name / ID", default="")
-    set_id = bpy.props.StringProperty(name="Set ID", default="")
-    action_type = bpy.props.StringProperty(name="Action Type", default="")
-
-    def execute(self, context):
-        props = vars.props()
-        prefix = self.prefix
-        rig_id = self.rig_id
-        motion_id = get_unique_set_motion_id(rig_id, self.motion_id, prefix,
-                                             exclude_set_id=self.set_id,
-                                             slotted=(self.action_type == "SLOTTED"))
-        for action in bpy.data.actions:
-            if "rl_set_id" in action:
-                if action["rl_set_id"] == self.set_id:
-                    set_id, set_generation, action_type_id, obj_id = get_motion_set_ids(action)
-                    if action_type_id == "ARM":
-                        name = make_armature_action_name(rig_id, motion_id, prefix, slotted=False)
-                        action.name = name
-                    elif action_type_id == "KEY":
-                        name = make_key_action_name(rig_id, motion_id, obj_id, prefix)
-                        action.name = name
-                    elif action_type_id == "SLOTTED":
-                        name = make_armature_action_name(rig_id, motion_id, prefix, slotted=True)
-                        action.name = name
-        return {"FINISHED"}
-
-    def invoke(self, context, event):
-        props = vars.props()
-        prefs = vars.prefs()
-
-        props.store_ui_list_indices()
-        action = props.action_set_list_action
-        self.action = action.name
-        chr_cache = props.get_context_character_cache(context)
-
-        if not action:
-            return {"FINISHED"}
-
-        set_id, set_generation, action_type_id, key_object = get_motion_set_ids(action)
-        self.action_type = action_type_id
-
-        if not set_id:
-            return {"FINISHED"}
-
-        self.set_id = set_id
-
-        prefix, rig_id, type_id, obj_id, motion_id = decode_action_name(action)
-        if prefix:
-            self.prefix = prefix
-        else:
-            self.prefix = ""
-        if rig_id:
-            self.rig_id = rig_id
-        else:
-            self.rig_id = ""
-        if motion_id:
-            self.motion_id = motion_id
-        elif action.name:
-            self.motion_id = action.name.split("|")[-1]
-        else:
-            self.motion_id = "Motion"
-
-        return context.window_manager.invoke_props_dialog(self, width=400)
-
-    def draw(self, context):
-        layout = self.layout
-
-        split = layout.split(factor=0.35)
-        col_1 = split.column()
-        col_2 = split.column()
-
-        col_1.label(text="Motion Set ID:")
-        col_2.label(text=self.set_id)
-
-        col_1.separator()
-        col_2.separator()
-
-        col_1.label(text="Prefix:")
-        col_2.prop(self, "prefix", text="")
-
-        col_1.separator()
-        col_2.separator()
-
-        col_1.label(text="Character / Rig ID:")
-        col_2.prop(self, "rig_id", text="")
-
-        col_1.separator()
-        col_2.separator()
-
-        col_1.label(text="Motion Name / ID:")
-        col_2.prop(self, "motion_id", text="")
-
-        layout.separator()
-
-    @classmethod
-    def description(cls, context, properties):
-        return "Change the name, prefix, and character/rig id of the motion set"
-
-
-class CCICMotionSetInfo(bpy.types.Operator):
-    bl_idname = "ccic.motion_set_info"
-    bl_label = "Motion Set Info"
-
-    prefix: bpy.props.StringProperty(name="Motion Prefix", default="")
-    rig_id: bpy.props.StringProperty(name="Character / Rig ID", default="")
-    motion_id: bpy.props.StringProperty(name="Motion Name / ID", default="")
-    set_id: bpy.props.StringProperty(name="Set ID", default="")
-
-    def execute(self, context):
-        return {"FINISHED"}
-
-    def invoke(self, context, event):
-        props = vars.props()
-        prefs = vars.prefs()
-
-        props.store_ui_list_indices()
-        action = props.action_set_list_action
-        chr_cache = props.get_context_character_cache(context)
-
-        self.delete_me = False
-        # TODO make delete an op button?
-        # TODO use_fake_user button
-
-        if not action:
-            return {"FINISHED"}
-
-        set_id, set_generation, action_type_id, key_object = get_motion_set_ids(action)
-
-        if not set_id:
-            return {"FINISHED"}
-
-        self.set_id = set_id
-
-        prefix, rig_id, type_id, obj_id, motion_id = decode_action_name(action)
-        if prefix:
-            self.prefix = prefix
-        if rig_id:
-            self.rig_id = rig_id
-        elif chr_cache:
-            self.rig_id = chr_cache.character_name
-        else:
-            self.rig_id = "Rig"
-        if motion_id:
-            self.motion_id = motion_id
-        elif action.name:
-            self.motion_id = action.name.split("|")[-1]
-        else:
-            self.motion_id = "Motion"
-
-        return context.window_manager.invoke_popup(self, width=600)
-
-    def draw(self, context):
-        layout = self.layout
-
-        split = layout.split(factor=0.25)
-        col_1 = split.column()
-        col_2 = split.column()
-
-        col_1.label(text="Motion Set ID:")
-        col_2.label(text=self.set_id)
-
-        col_1.separator()
-        col_2.separator()
-
-        col_1.label(text="Prefix:")
-        col_2.label(text=self.prefix if self.prefix else "(None)")
-        col_1.label(text="Character / Rig ID:")
-        col_2.label(text=self.rig_id if self.rig_id else "(None)")
-        col_1.label(text="Motion Name / ID:")
-        col_2.label(text=self.motion_id if self.motion_id else "(None)")
-
-        layout.separator()
-
-        layout.label(text="Actions:")
-
-        split = layout.split(factor=0.25)
-        col_1 = split.column()
-        col_2 = split.column()
-        for action in bpy.data.actions:
-            action_set_id = utils.get_prop(action, "rl_set_id")
-            action_type = utils.get_prop(action, "rl_action_type")
-            if action_set_id == self.set_id:
-                if action_type == "ARM":
-                    col_1.label(text="Armature")
-                elif action_type == "KEY":
-                    obj_id = utils.get_prop(action, "rl_key_object", "(None)")
-                    col_1.label(text=obj_id)
-                else:
-                    col_1.label(text="?")
-                col_2.label(text=action.name)
-        col_1.separator()
-        col_2.separator()
-        col_1.separator()
-        row = col_2.split(factor=0.5).column().row()
-        row.alert = True
-        row.scale_y = 1.5
-        row.operator("ccic.rigutils", text="Delete Motion Set", icon="ERROR").param = "DELETE_MOTION_SET"
-        layout.separator()
-        layout.separator()
-        layout.separator()
-
-    @classmethod
-    def description(cls, context, properties):
-        return "Show motion set info"
-
-#region Operators
-class CCICRigUtils(bpy.types.Operator):
-    """Rig Utilities"""
-    bl_idname = "ccic.rigutils"
-    bl_label = "Rig Utils"
-    bl_options = {"REGISTER"}
-
-    param: bpy.props.StringProperty(
-            name = "param",
-            default = "",
-            options={"HIDDEN"}
-        )
-
-    def execute(self, context):
-        props = vars.props()
-        prefs = vars.prefs()
-        chr_cache = props.get_context_character_cache(context)
-        rig = chr_cache.get_armature() if chr_cache else None
-
-        if chr_cache:
-
-            props.store_ui_list_indices()
-
-            if rig:
-                if self.param == "TOGGLE_SHOW_FULL_RIG":
-                    toggle_show_full_rig(rig)
-
-                elif self.param == "TOGGLE_SHOW_BASE_RIG":
-                    toggle_show_base_rig(rig)
-
-                elif self.param == "TOGGLE_SHOW_SPRING_RIG":
-                    toggle_show_spring_rig(rig)
-
-                elif self.param == "TOGGLE_SHOW_RIG_POSE":
-                    toggle_rig_rest_position(rig)
-
-                elif self.param == "TOGGLE_SHOW_SPRING_BONES":
-                    springbones.toggle_show_spring_bones(chr_cache)
-
-                elif self.param == "TOGGLE_EXPRESSION_RIG_LOCK":
-                    facerig.toggle_lock_position(chr_cache, rig)
-
-                elif self.param == "BUTTON_RESET_POSE_SELECTED":
-                    mode_selection = utils.store_mode_selection_state()
-                    reset_pose(rig, use_selected=True)
-                    utils.restore_mode_selection_state(mode_selection)
-
-                elif self.param == "BUTTON_RESET_POSE":
-                    mode_selection = utils.store_mode_selection_state()
-                    reset_pose(rig, use_selected=False)
-                    utils.restore_mode_selection_state(mode_selection)
-
-                elif self.param == "RESET_EXPRESSION_POSE":
-                    if chr_cache.rigified:
-                        mode_selection = utils.store_mode_selection_state()
-                        facerig.clear_expression_pose(chr_cache, rig)
-                        utils.restore_mode_selection_state(mode_selection)
-
-                elif self.param == "RESET_EXPRESSION_POSE_SELECTED":
-                    if chr_cache.rigified:
-                        mode_selection = utils.store_mode_selection_state()
-                        facerig.clear_expression_pose(chr_cache, rig, selected=True)
-                        utils.restore_mode_selection_state(mode_selection)
-
-                elif self.param == "TOGGLE_SHOW_FACE_RIG":
-                    toggle_show_only_face_rig(rig)
-
-                elif self.param == "SET_LIMB_FK":
-                    if chr_cache.rigified:
-                        set_rigify_ik_fk_influence(rig, 1.0)
-                        poke_rig(rig)
-
-                elif self.param == "SET_LIMB_IK":
-                    if chr_cache.rigified:
-                        set_rigify_ik_fk_influence(rig, 0.0)
-                        poke_rig(rig)
-
-                elif self.param == "LOAD_MOTION_SET":
-                    action = props.action_set_list_action
-                    load_motion_set(rig, action)
-
-                elif self.param == "PUSH_ACTION_SET":
-                    action = props.action_set_list_action
-                    auto_index = chr_cache.get_auto_index()
-                    push_motion_set(rig, action, auto_index)
-
-                elif self.param == "CLEAR_ACTION_SET":
-                    clear_motion_set(rig)
-
-                elif self.param == "NEW_ACTION_SET":
-                    new_motion_set(rig)
-
-                elif self.param == "DISABLE_CONSTRAINT_STRETCH":
-                    mode_selection = utils.store_mode_selection_state()
-                    rigify_rig = chr_cache.get_armature()
-                    disable_ik_stretch(rigify_rig)
-                    utils.restore_mode_selection_state(mode_selection)
-
-                elif self.param == "ENABLE_CONSTRAINT_STRETCH":
-                    mode_selection = utils.store_mode_selection_state()
-                    rigify_rig = chr_cache.get_armature()
-                    restore_ik_stretch(rigify_rig=rigify_rig)
-                    utils.restore_mode_selection_state(mode_selection)
-
-            if self.param == "SELECT_SET_STRIPS":
-                strip = context.active_nla_strip
-                select_strips_by_set(strip)
-
-            elif self.param == "NLA_ALIGN_LEFT":
-                strips = context.selected_nla_strips
-                align_strips(strips, left=True)
-
-            elif self.param == "NLA_ALIGN_TO_LEFT":
-                strips = context.selected_nla_strips
-                active_strip = context.active_nla_strip
-                align_strips(strips, to_strip=active_strip, left=True)
-
-            elif self.param == "NLA_ALIGN_RIGHT":
-                strips = context.selected_nla_strips
-                align_strips(strips, left=False)
-
-            elif self.param == "NLA_ALIGN_TO_RIGHT":
-                strips = context.selected_nla_strips
-                active_strip = context.active_nla_strip
-                align_strips(strips, to_strip=active_strip, left=False)
-
-            elif self.param == "NLA_SIZE_SHORTEST":
-                strips = context.selected_nla_strips
-                size_strips(strips, longest=False)
-
-            elif self.param == "NLA_SIZE_LONGEST":
-                strips = context.selected_nla_strips
-                size_strips(strips, longest=True)
-
-            elif self.param == "NLA_SIZE_TO":
-                strips = context.selected_nla_strips
-                active_strip = context.active_nla_strip
-                size_strips(strips, to_strip=active_strip)
-
-            elif self.param == "NLA_RESET_SIZE":
-                strips = context.selected_nla_strips
-                size_strips(strips, reset=True)
-
-            elif self.param == "SET_FAKE_USER_ON":
-                action = props.action_set_list_action
-                set_action_set_fake_user(action, True)
-
-            elif self.param == "SET_FAKE_USER_OFF":
-                action = props.action_set_list_action
-                set_action_set_fake_user(action, False)
-
-            elif self.param == "DELETE_MOTION_SET":
-                action = props.action_set_list_action
-                delete_motion_set(action)
-
-            props.restore_ui_list_indices()
-
-        if self.param == "CLEAN_ACTIONS":
-            if utils.object_exists_is_camera(context.object) or utils.object_exists_is_light(context.object):
-                clean_actions(context.object)
-            elif rig:
-                clean_actions(rig)
-
-        return {"FINISHED"}
-
-    @classmethod
-    def description(cls, context, properties):
-
-        if properties.param == "TOGGLE_SHOW_SPRING_BONES":
-            return "Quick toggle for the armature layers to show just the spring bones or just the body bones"
-
-        elif properties.param == "TOGGLE_SHOW_FULL_RIG":
-            return "Toggles showing all the rig controls"
-
-        elif properties.param == "TOGGLE_SHOW_BASE_RIG":
-            return "Toggles showing the base rig controls"
-
-        elif properties.param == "TOGGLE_SHOW_SPRING_RIG":
-            return "Toggles showing just the spring rig controls"
-
-        elif properties.param == "TOGGLE_SHOW_RIG_POSE":
-            return "Toggles the rig between pose mode and rest pose"
-
-        elif properties.param == "TOGGLE_SHOW_FACE_RIG":
-            return "Toggles showing just the face expression rig controls"
-
-        elif properties.param == "TOGGLE_EXPRESSION_RIG_LOCK":
-            return "Toggle locking the position of the expression rig and making unselectable"
-
-        elif properties.param == "BUTTON_RESET_POSE":
-            return "Clears all pose transforms"
-
-        elif properties.param == "BUTTON_RESET_POSE_SELECTED":
-            return "Clears the pose on all selected bones"
-
-        elif properties.param == "RESET_EXPRESSION_POSE":
-            return "Clears the expression on all expression controls"
-
-        elif properties.param == "RESET_EXPRESSION_POSE_SELECTED":
-            return "Clears the pose on all selected expression rig bones"
-
-        elif properties.param == "LOAD_MOTION_SET":
-            return "Loads the chosen motion set (armature and shape key actions) into the all the character objects"
-
-        elif properties.param == "PUSH_ACTION_SET":
-            return "Pushes the chosen motion set (armature and shape key actions) into the NLA tracks of all the character objects at the current frame. " \
-                   "A suitable track will be chosen to fit the actions. If there is no room available a new track will be added to contain the actions"
-
-        elif properties.param == "CLEAR_ACTION_SET":
-            return "Removes all actions from the character"
-
-        elif properties.param == "SELECT_SET_STRIPS":
-            return "Selects all the strips belonging to the same motion set and strip index"
-
-        elif properties.param == "NLA_ALIGN_LEFT":
-            return "Aligns all selected strips to the left most of frame of all selected strips"
-
-        elif properties.param == "NLA_ALIGN_RIGHT":
-            return "Aligns all selected strips to right most of frame of all selected strips"
-
-        elif properties.param == "NLA_ALIGN_TO_LEFT":
-            return "Aligns all selected strips to the left hand frame of the active strip"
-
-        elif properties.param == "NLA_ALIGN_TO_RIGHT":
-            return "Aligns all selected strips to the right hand frame of the active strip"
-
-        elif properties.param == "NLA_SIZE_SHORTEST":
-            return "Sets the frame lengths of all selected strips to the length of the shortest strip in the selection"
-
-        elif properties.param == "NLA_SIZE_TO":
-            return "Sets the frame lengths of all selected strips to the length of the active strip"
-
-        elif properties.param == "NLA_SIZE_LONGEST":
-            return "Sets the frame lengths of all selected strips to the length of the longest strip in the selection"
-
-        elif properties.param == "NLA_RESET_SIZE":
-            return "Resets the frame lengths of all selected strips to the length of the underlying action"
-
-        elif properties.param == "SET_FAKE_USER_ON":
-            return "Set fake user on all actions in the motion set"
-
-        elif properties.param == "SET_FAKE_USER_OFF":
-            return "Clear fake user on all actions in the motion set"
-
-        elif properties.param == "DELETE_MOTION_SET":
-            return "Delete all actions in the motion set"
-
-        elif properties.param == "DISABLE_CONSTRAINT_STRETCH":
-            return "Disable stretch in all IK mechanisms on the rig. By default the Blender Rigify rig allows a certain amount of stretch in the bones ease IK alignment.\n" \
-                   "But in other applications, this bone stretch is not possible, disabling the IK stretch system can aid with animation alignment problems"
-
-        elif properties.param == "ENABLE_CONSTRAINT_STRETCH":
-            return "Re-enable the IK stretch mechanisms in the rig"
-
-        return ""
-
-
-class CCIC_ImportMixBones_UL_List(bpy.types.UIList):
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            layout.label(text=item.name if item else "", translate=False, icon_value=icon)
-        elif self.layout_type in {'GRID'}:
-            layout.alignment = 'CENTER'
-            layout.label(text="", icon_value=icon)
-
-    def filter_items(self, context, data, propname):
-        filtered = []
-        ordered = []
-        items = getattr(data, propname)
-        filtered = [self.bitflag_filter_item] * len(items)
-        for i, item in enumerate(items):
-            allowed = True
-            # filter by name
-            if self.filter_name and self.filter_name != "*":
-                if self.filter_name not in item.name:
-                    allowed = False
-            # block not allowed
-            if not allowed:
-                filtered[i] &= ~self.bitflag_filter_item
-        return filtered, ordered
-
-
-class CCICActionImportFunctions(bpy.types.Operator):
-    """Action Import Functions"""
-    bl_idname = "ccic.action_import_functions"
-    bl_label = "Action Import Functions"
-    bl_options = {"REGISTER", "UNDO"}
-
-    param: bpy.props.StringProperty(
-            name = "param",
-            default = "",
-            options={"HIDDEN"}
-        )
-
-    def execute(self, context):
-        props = vars.props()
-        prefs = vars.prefs()
-        chr_cache = props.get_context_character_cache(context)
-        if chr_cache:
-            if self.param == "ADD_BONE":
-                self.add_bone(chr_cache)
-            elif self.param == "REMOVE_BONE":
-                self.remove_bone(chr_cache)
-        return {"FINISHED"}
-
-    def add_bone(self, chr_cache):
-        arm = chr_cache.get_armature()
-        props = chr_cache.action_options
-        bone_index = props.rig_mix_bones_list_index
-        bone = arm.data.bones[bone_index]
-        for bone_item in props.import_mix_bones:
-            if bone_item.name == bone.name:
-                return
-        bone_item = props.import_mix_bones.add()
-        bone_item.name = bone.name
-        bone_item.weight = 1.0
-
-    def remove_bone(self, chr_cache):
-        props = chr_cache.action_options
-        index = props.import_mix_bones_list_index
-        try:
-            props.import_mix_bones.remove(index)
-        except:
-            print(f"Unable to remove import mix bones index: {index}")
-
-
-    @classmethod
-    def description(cls, context, properties):
-        return ""
-
-
-class CCIC_RigMixBones_UL_List(bpy.types.UIList):
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            layout.label(text=item.name if item else "", translate=False, icon_value=icon)
-        elif self.layout_type in {'GRID'}:
-            layout.alignment = 'CENTER'
-            layout.label(text="", icon_value=icon)
-
-    def filter_items(self, context, data, propname):
-        props = vars.props()
-        filtered = []
-        ordered = []
-        items = getattr(data, propname)
-        filtered = [self.bitflag_filter_item] * len(items)
-        item : bpy.types.Action
-        chr_cache = props.get_context_character_cache(context)
-        if chr_cache:
-            arm = chr_cache.get_armature()
-        for i, item in enumerate(items):
-            allowed = True
-            # filter by name
-            if self.filter_name and self.filter_name != "*":
-                if self.filter_name not in item.name:
-                    allowed = False
-            # block not allowed
-            if not allowed:
-                filtered[i] &= ~self.bitflag_filter_item
-        return filtered, ordered
-
-
-class CCICActionImportOptions(bpy.types.Operator):
-    """Action Import Options"""
-    bl_idname = "ccic.action_import_options"
-    bl_label = "Action Import Options"
-    bl_options = {"REGISTER", "UNDO"}
-
-    chr_cache = None
-    objects = {}
-
-    @classmethod
-    def poll(cls, context):
-        return True
-        #props = vars.props()
-        #return props.get_context_character_cache(context) is not None
-
-    @classmethod
-    def label(cls, context, chr_cache=None):
-        props = vars.props()
-        if not chr_cache:
-            chr_cache = props.get_context_character_cache(context, strict=True)
-            if not chr_cache:
-                opts = props.action_options
-        if chr_cache and chr_cache.action_options:
-            opts = chr_cache.action_options
-        action_text = {
-            "NEW": "New",
-            "REPLACE": "Replace",
-            "BLEND": "Overwrite",
-        }
-        frame_text = {
-            "START": "Start",
-            "CURRENT": "Current",
-            "MATCH": "Match",
-        }
-        mask_text = " (Mask)" if opts.use_masking else ""
-        return f"{action_text[opts.get_action_mode()]} | {frame_text[opts.get_frame_mode()]}{mask_text}"
-
-    def draw(self, context):
-        prefs = vars.prefs()
-        props = vars.props()
-        layout = self.layout
-        column = layout.column()
-
-        # prefs
-        column.label(text="Preferences:")
-        row = column.row()
-        grid = row.grid_flow(row_major=True, columns=2)
-        if utils.B440():
-            grid.prop(prefs, "action_use_action_slots")
-            grid.prop(prefs, "action_add_key_slots_per_obj")
-        #grid.prop(prefs, "action_clean_actions")
-        grid.prop(prefs, "action_add_empty_key_channels")
-
-        if True:
-            opts = props.action_options
-            column.separator()
-            column.row().label(text="Global Motion Options:")
-            column.row().prop(opts, "action_mode")
-            column.row().prop(opts, "frame_mode")
-
-        if self.chr_cache and self.chr_cache.action_options:
-            arm = self.chr_cache.get_armature()
-            opts = self.chr_cache.action_options
-
-            column.separator()
-
-            row = column.row()
-            row.prop(opts, "override_global")
-            row.label(text=f"{self.chr_cache.character_name}")
-            column = column.column()
-            column.enabled = opts.override_global
-            column.row().prop(opts, "action_mode")
-            column.row().prop(opts, "frame_mode")
-
-            return
-
-            column.separator()
-
-            column.row().prop(opts, "use_masking")
-            if opts.use_masking:
-                row = column.row()
-                row.template_list("CCIC_RigMixBones_UL_List", "rig_mix_bones_list",
-                                        arm.data, "bones",
-                                        opts, "rig_mix_bones_list_index",
-                                        rows=8, maxrows=8)
-                col = row.column()
-                col.separator(factor=4.0)
-                col.operator("ccic.action_import_functions", text="", icon="PLAY").param = "ADD_BONE"
-                col.separator(factor=4.0)
-                col.operator("ccic.action_import_functions", text="", icon="PLAY_REVERSE").param = "REMOVE_BONE"
-                col.separator(factor=4.0)
-                row.template_list("CCIC_ImportMixBones_UL_List", "import_mix_bones_list",
-                                        opts, "import_mix_bones",
-                                        opts, "import_mix_bones_list_index",
-                                        rows=8, maxrows=8)
-
-
-    def execute(self, context):
-        props = vars.props()
-        prefs = vars.prefs()
-        #self.chr_cache = props.get_context_character_cache(context)
-        return {'FINISHED'}
-
-    def invoke(self, context, event):
-        props = vars.props()
-        prefs = vars.prefs()
-        utils.set_mode("OBJECT")
-        self.chr_cache = props.get_context_character_cache(context, strict=True)
-        return context.window_manager.invoke_props_dialog(self, width=500)
-
-    @classmethod
-    def description(cls, context, properties):
-        return "Description"
-
-# endregion
-
-
+#region Actions
 def add_action_slot_channelbag(action, name, slot_type, reuse=False, clear=False):
     if utils.B440():
         channelbags = utils.get_action_channelbags(action)
@@ -3349,10 +2669,16 @@ def fetch_action_curve_database(source_action):
     if utils.B440():
         all_actions = arm_actions + key_actions
         a: bpy.types.Action
+        done_channelbags = []
+        done_actions = []
         for a in all_actions:
+            if a in done_actions: continue
+            done_actions.append(a)
             channelbags = utils.get_action_channelbags(a)
             # build database of fcurves by slot
             for channel in channelbags:
+                if channel in done_channelbags: continue
+                done_channelbags.append(channel)
                 slot = channel.slot
                 is_source_channel = False
                 for MC in SOURCE_CHANNELS:
@@ -3379,7 +2705,10 @@ def fetch_action_curve_database(source_action):
             all_actions.append(("OBJECT", arm_action))
         for key_action in key_actions:
             all_actions.append(("KEY", key_action))
+        done_actions = []
         for slot_type, a in all_actions:
+            if a in done_actions: continue
+            done_actions.append(a)
             # build database of fcurves by slot
             if slot_type not in data_curves:
                 data_curves[slot_type] = {}
@@ -4036,10 +3365,33 @@ def get_shape_key_group_name(key_name):
     return "Custom"
 
 
-def copy_fcurve_to_channel(from_fcurve: bpy.types.FCurve, to_channel) -> bpy.types.FCurve:
-    if utils.B500():
-        to_fcurve: bpy.types.FCurve = to_channel.fcurves.new_from_fcurve(from_fcurve)
+def copy_fcurve_to_channel(from_fcurve: bpy.types.FCurve, to_channel, no_frames=False) -> bpy.types.FCurve:
+    if from_fcurve and to_channel:
+        if utils.B500():
+            to_fcurve: bpy.types.FCurve = to_channel.fcurves.new_from_fcurve(from_fcurve)
+            if no_frames:
+                to_fcurve.keyframe_points.clear()
+        else:
+            data_path = from_fcurve.data_path
+            index = from_fcurve.array_index
+            to_fcurve: bpy.types.FCurve = to_channel.fcurves.new(data_path, index=index)
+            to_fcurve.auto_smoothing = from_fcurve.auto_smoothing
+            to_fcurve.color = from_fcurve.color
+            to_fcurve.color_mode = from_fcurve.color_mode
+            to_fcurve.extrapolation = from_fcurve.extrapolation
+            to_fcurve.mute = from_fcurve.mute
+            to_fcurve.lock = from_fcurve.lock
+            if not no_frames:
+                from_keyframes, num_points = get_fcurve_keyframe_data(from_fcurve)
+                apply_fcurve_keyframe_data(to_fcurve, from_keyframes)
+        to_fcurve.update()
+        return to_fcurve
     else:
+        return None
+
+
+def clone_fcurve_to_channel(from_fcurve: bpy.types.FCurve, to_channel) -> bpy.types.FCurve:
+    if from_fcurve and to_channel:
         data_path = from_fcurve.data_path
         index = from_fcurve.array_index
         to_fcurve: bpy.types.FCurve = to_channel.fcurves.new(data_path, index=index)
@@ -4049,10 +3401,9 @@ def copy_fcurve_to_channel(from_fcurve: bpy.types.FCurve, to_channel) -> bpy.typ
         to_fcurve.extrapolation = from_fcurve.extrapolation
         to_fcurve.mute = from_fcurve.mute
         to_fcurve.lock = from_fcurve.lock
-        from_keyframes, num_points = get_fcurve_keyframe_data(from_fcurve)
-        apply_fcurve_keyframe_data(to_fcurve, from_keyframes)
-    to_fcurve.update()
-    return to_fcurve
+        return to_fcurve
+    else:
+        return None
 
 
 def refactor_to_slotted_action(objects, actions):
@@ -4280,7 +3631,7 @@ def reset_fcurve_interpolation(fcurve: bpy.types.FCurve, interpolation="LINEAR")
     fcurve.update()
 
 
-def shift_actions(action, to_frame, frame_start = 1):
+def shift_action(action, to_frame, frame_start = 1):
     if to_frame == frame_start:
         return
     fcurves = utils.get_action_fcurves(action)
@@ -4299,6 +3650,10 @@ def shift_actions(action, to_frame, frame_start = 1):
 def mix_actions(src_action, src_slot, dst_action, dst_slot, frame_start, frame_end):
     src_channelbag = utils.get_action_channelbag(src_action, src_slot)
     dst_channelbag = utils.get_action_channelbag(dst_action, dst_slot)
+
+    #root_bone = "CC_Base_BoneRoot"
+    #src_root_transform_set = fetch_action_bone_transform_set(src_channelbag, root_bone)
+    #dst_root_transform_set = fetch_action_bone_transform_set(dst_channelbag, root_bone)
 
     if not src_channelbag:
         utils.log_error(f"Mix Actions: No source channels!")
@@ -4433,9 +3788,40 @@ def target_slot(target):
     return None
 
 
+def fetch_target_channels(rig, rig_action=None):
+    rig_slot = target_slot(rig)
+    if not rig_action:
+        rig_action = utils.safe_get_action(rig)
+    rig_channelbag = utils.get_action_channelbag(rig_action, slot=rig_slot)
+    rig_channel = (rig_action, rig_slot, rig_channelbag)
+    key_channels = {}
+    for child in rig.children:
+        if utils.object_exists_has_shape_keys(child):
+            key_slot = target_slot(child.data.shape_keys)
+            key_action = utils.safe_get_action(child.data.shape_keys)
+            key_channelbag = utils.get_action_channelbag(key_action, slot=key_slot)
+            key_channels[child.name] = (key_action, key_slot, key_channelbag)
+    data_slot = target_slot(rig.data)
+    if rig.type == "LIGHT" or rig.type == "CAMERA":
+        data_action = utils.safe_get_action(rig.data)
+    else:
+        data_action = None
+    data_channelbag = utils.get_action_channelbag(data_action, slot=data_slot)
+    data_channel = (data_action, data_slot, data_channelbag)
+    return rig_channel, key_channels, data_channel
+
+
+def fetch_key_targets(rig):
+    key_targets = []
+    for child in rig.children:
+        if utils.object_exists_has_shape_keys(child):
+            key_targets.append(child.name)
+    return key_targets
+
+
 def mix_motion_set(rig, action_store_id, frame_start, frame_end):
     props = vars.props()
-    stored_main_action = props.fetch_stored_rig_action(action_store_id)
+    stored_main_action, stored_main_slot = props.fetch_stored_rig_channel(action_store_id)
     done = False
     objects = [rig]
     if utils.object_exists_is_armature(rig):
@@ -4495,6 +3881,15 @@ def mix_motion_set(rig, action_store_id, frame_start, frame_end):
     if done:
         props.restore_actions(action_store_id)
         #delete_motion_set(set_id)
+
+
+def shift_motion_frames(motion_action, to_frame):
+    if motion_action:
+        actions = get_motion_set_actions(motion_action)
+        action_range = get_actions_frame_range(actions)
+        utils.log_info(f"Moving motion frames: {motion_action.name} {action_range} to {to_frame}")
+        for action in actions:
+            shift_action(action, to_frame, action_range[0])
 
 
 def add_slot_channels_to_rig_motion(rig, obj, slot_type, action, reuse=False, clear=False):
@@ -4605,6 +4000,26 @@ def finalize_rlx_import(obj, actions, action_store_id, action_mode, frame_start=
 
     if actions:
         stored_actions = props.fetch_stored_actions(action_store_id)
+        motion_rig_channel, motion_key_channels, motion_data_channel = fetch_target_channels(obj, motion_action)
+        key_targets = []
+        stored_rig_channel = props.fetch_stored_rig_channel(action_store_id)
+        stored_key_channels = props.fetch_stored_key_channels(action_store_id)
+        stored_data_channel = props.fetch_stored_data_channel(action_store_id)
+        opts, blend_in_data, blend_out_data, use_masked = get_import_opts(None, None)
+        if opts.relative_root or opts.current_root or opts.use_blend or use_masked:
+            resample_blend(None, obj,
+                           motion_rig_channel, motion_key_channels, motion_data_channel,
+                           stored_rig_channel, stored_key_channels, stored_data_channel,
+                           key_targets,
+                           frame_start, frame_end,
+                           relative_root=opts.relative_root,
+                           current_root=opts.current_root,
+                           use_blend=opts.use_blend,
+                           blend_in_frames=opts.blend_in_frames,
+                           blend_out_frames=opts.blend_out_frames,
+                           blend_in_data=blend_in_data,
+                           blend_out_data=blend_out_data,
+                           overall_strength=opts.blend_strength)
 
         # now decide what to do with the actions based on the action_mode and frame_mode
 
@@ -4623,48 +4038,88 @@ def finalize_rlx_import(obj, actions, action_store_id, action_mode, frame_start=
             stored_actions = props.fetch_stored_actions(action_store_id)
             utils.delete_actions(stored_actions)
 
-        elif action_mode == "BLEND":
-            old_action = stored_actions[0]
-            utils.log_info(f"Action Mode BLEND: blending motion set: {motion_action.name} over existing motion: {old_action.name}")
-            mix_motion_set(obj, action_store_id, frame_start, frame_end)
-            utils.delete_actions(actions)
+        #elif action_mode == "BLEND":
+        #    old_action = stored_actions[0]
+        #    utils.log_info(f"Action Mode BLEND: blending motion set: {motion_action.name} over existing motion: {old_action.name}")
+        #    mix_motion_set(obj, action_store_id, frame_start, frame_end)
+        #    utils.delete_actions(actions)
 
         props.delete_action_store(action_store_id)
 
 
-def finalize_motion_import(rig, motion_action, action_store_id, action_mode, frame_start=None, frame_end=None):
+def get_import_opts(chr_cache, chr_override=False):
     props = vars.props()
+    blend_in = None
+    blend_out = None
+    use_masked = chr_cache and chr_cache.action_options and \
+                        (chr_cache.action_options.use_bone_masking or
+                         chr_cache.action_options.use_key_masking)
+    if chr_cache and chr_cache.action_options and (chr_cache.action_options.override_global or chr_override):
+        if chr_cache.action_options.use_blend:
+            blend_in = ui.get_fcurve_data(chr_cache, "motion_blend_in", shape="IN")
+            blend_out = ui.get_fcurve_data(chr_cache, "motion_blend_out", shape="OUT")
+        return chr_cache.action_options, blend_in, blend_out, use_masked
+    else:
+        if props.action_options.use_blend:
+            blend_in = ui.get_fcurve_data(None, "motion_blend_in", shape="IN")
+            blend_out = ui.get_fcurve_data(None, "motion_blend_out", shape="OUT")
+        return props.action_options, blend_in, blend_out, use_masked
 
-    motion_start_frame, motion_end_frame = get_motion_set_frame_range(motion_action)
+
+def finalize_motion_import(chr_cache, rig, motion_rig_action, action_store_id, action_mode, frame_start=None, frame_end=None, chr_override=False):
+    props = vars.props()
+    motion_start_frame, motion_end_frame = get_motion_set_frame_range(motion_rig_action)
     if frame_start is None:
         frame_start = motion_start_frame
     if frame_end is None:
         frame_end = motion_end_frame
 
     utils.log_info("Finalize motion import:")
-    utils.log_info(f"motion action: {motion_action.name}")
+    utils.log_info(f"motion action: {motion_rig_action.name}")
     utils.log_info(f"start frame: {frame_start}")
     utils.log_info(f"end frame: {frame_end}")
 
     if frame_start is None or frame_end is None:
-        utils.log_error(f"Unable to fetch frame range from action!: {motion_action}")
+        utils.log_error(f"Unable to fetch frame range from action!: {motion_rig_action}")
         props.restore_actions(action_store_id)
         props.delete_action_store(action_store_id)
         return
 
-    if motion_action:
-        set_id = get_motion_set_ids(motion_action)[0]
+    if motion_rig_action:
+        set_id = get_motion_set_ids(motion_rig_action)[0]
         stored_actions = props.fetch_stored_actions(action_store_id)
+        motion_rig_channel, motion_key_channels, motion_data_channel = fetch_target_channels(rig, motion_rig_action)
+        key_targets = fetch_key_targets(rig)
+        stored_rig_channel = props.fetch_stored_rig_channel(action_store_id)
+        stored_key_channels = props.fetch_stored_key_channels(action_store_id)
+        stored_data_channel = props.fetch_stored_data_channel(action_store_id)
+        #masked_bones: list = []
+        #mask_bones(rig, motion_rig_action, motion_rig_slot, masked_bones)
+        opts, blend_in_data, blend_out_data, use_masked = get_import_opts(chr_cache, chr_override)
+        if opts.relative_root or opts.current_root or opts.use_blend or use_masked:
+            resample_blend(chr_cache, rig,
+                           motion_rig_channel, motion_key_channels, motion_data_channel,
+                           stored_rig_channel, stored_key_channels, stored_data_channel,
+                           key_targets,
+                           frame_start, frame_end,
+                           relative_root=opts.relative_root,
+                           current_root=opts.current_root,
+                           use_blend=opts.use_blend,
+                           blend_in_frames=opts.blend_in_frames,
+                           blend_out_frames=opts.blend_out_frames,
+                           blend_in_data=blend_in_data,
+                           blend_out_data=blend_out_data,
+                           overall_strength=opts.blend_strength)
 
         # now decide what to do with the actions based on the action_mode and frame_mode
 
         if action_mode == "NEW":
             # already loaded, do nothing else
-            utils.log_info(f"Action Mode NEW: Loaded new motion set: {motion_action.name} / ({set_id})")
+            utils.log_info(f"Action Mode NEW: Loaded new motion set: {motion_rig_action.name} / ({set_id})")
 
         elif not stored_actions:
             # already loaded, do nothing else
-            utils.log_info(f"No current motion: Loaded new motion set: {motion_action.name} / ({set_id})")
+            utils.log_info(f"No current motion: Loaded new motion set: {motion_rig_action.name} / ({set_id})")
 
         elif action_mode == "REPLACE":
             # get the stored motion set data (and name) and apply it to the new motion_action
@@ -4674,12 +4129,2026 @@ def finalize_motion_import(rig, motion_action, action_store_id, action_mode, fra
             #replace_motion_set(set_id, old_set_id)
             delete_motion_set(old_set_id)
 
-        elif action_mode == "BLEND":
-            old_action = stored_actions[0]
-            old_set_id = get_motion_set_ids(old_action)[0]
-            utils.log_info(f"Action Mode BLEND: blending motion set: {motion_action.name} / ({set_id}) over existing motion: {old_action.name} / ({old_set_id})")
-            mix_motion_set(rig, action_store_id, frame_start, frame_end)
-            delete_motion_set(set_id)
+        #elif action_mode == "BLEND":
+        #    old_action = stored_actions[0]
+        #    old_set_id = get_motion_set_ids(old_action)[0]
+        #    utils.log_info(f"Action Mode BLEND: blending motion set: {motion_rig_action.name} / ({set_id}) over existing motion: {old_action.name} / ({old_set_id})")
+        #    mix_motion_set(rig, action_store_id, frame_start, frame_end)
+        #    delete_motion_set(set_id)
 
         props.delete_action_store(action_store_id)
+
+
+def resample_relative_root(rig, motion_action, motion_slot, stored_action, stored_slot, from_frame):
+    root_bone_name = rig.pose.bones[0].name
+    motion_channelbag = utils.get_action_channelbag(motion_action, slot=motion_slot)
+    stored_channelbag = utils.get_action_channelbag(stored_action, slot=stored_slot)
+    stored_transform_set, stored_has_curves = fetch_action_bone_transform_set(stored_channelbag, root_bone_name)
+    motion_transform_set, motion_has_curves = fetch_action_bone_transform_set(motion_channelbag, root_bone_name)
+    stored_start_loc, stored_start_rot = evaluate_action_bone_transform_set(stored_transform_set, from_frame)
+    motion_start_loc, motion_start_rot = evaluate_action_bone_transform_set(motion_transform_set, 1)
+
+    utils.log_info(f"Resampling root motion: {motion_action.name}")
+
+    # relative transformation between from_frame of stored motion and start of new motion
+    MS = utils.make_transform_matrix(stored_start_loc, stored_start_rot)
+    MM = utils.make_transform_matrix(motion_start_loc, motion_start_rot)
+    MD = MS @ MM.inverted()
+
+    # build a list of motion root transform fcurves
+    motion_loc_curves, motion_rot_curves = motion_transform_set
+    motion_curves = motion_loc_curves + motion_rot_curves
+    # should be 7
+    num_curves = len(motion_curves)
+
+    # go through motion root transform fcurves and fetch the raw data,
+    # and build a list of discrete frames
+    frames = set()
+    fcurve: bpy.types.FCurve = None
+    for fcurve in motion_curves:
+        num_points = len(fcurve.keyframe_points)
+        data = [0.0, 0.0] * num_points
+        fcurve.keyframe_points.foreach_get('co', data)
+        for i in range(0, len(data), 2):
+            frames.add(data[i])
+
+    # sort the frames in order
+    num_frames = len(frames)
+    sorted_frames = list(frames)
+    sorted_frames.sort()
+    utils.log_info(f" - {num_frames} resampled frames")
+
+    # generate resampled data lists for the curves in the motion root transform
+    resampled_data = []
+    for i in range(0, num_curves):
+        data = [0.0, 0.0] * num_frames
+        resampled_data.append(data)
+
+    # evaluate the motion root transform at each frame and
+    # transpose relative to the stored root transform
+    for f, frame in enumerate(sorted_frames):
+        motion_loc, motion_rot = evaluate_action_bone_transform_set(motion_transform_set, frame)
+        MF = utils.make_transform_matrix(motion_loc, motion_rot)
+        MR = MD @ MF
+        rel_loc = MR.to_translation()
+        rel_rot = MR.to_quaternion()
+        flat_transform = [rel_loc.x, rel_loc.y, rel_loc.z,
+                          rel_rot.w, rel_rot.x, rel_rot.y, rel_rot.z]
+        # write to the resampled curve data
+        index = f * 2
+        for i in range(0, num_curves):
+            resampled_data[i][index] = frame
+            resampled_data[i][index+1] = flat_transform[i]
+
+    # write the resampled transposed curve data back to the motion root transform curves
+    for i, fcurve in enumerate(motion_curves):
+        fcurve.keyframe_points.clear()
+        fcurve.keyframe_points.add(num_frames)
+        fcurve.keyframe_points.foreach_set('co', resampled_data[i])
+        reset_fcurve_interpolation(fcurve)
+
+    return
+
+
+def get_blend_mask_bones(chr_cache):
+    mask_bones = {}
+    use_blend = False
+    props = chr_cache.action_options
+    if props.use_bone_masking:
+        for item in props.import_bones:
+            bone_name = item.name
+            bone_weight = item.weight
+            mask_bones[bone_name] = bone_weight
+            if bone_weight < 1.0:
+                use_blend = True
+    return mask_bones, use_blend, props.use_bone_masking
+
+
+def get_blend_mask_keys(chr_cache):
+    mask_keys = {}
+    use_blend = False
+    props = chr_cache.action_options
+    if props.use_key_masking:
+        for item in props.import_keys:
+            key_name = item.name
+            key_weight = item.weight
+            mask_keys[key_name] = key_weight
+            if key_weight < 1.0:
+                use_blend = True
+    return mask_keys, use_blend, props.use_key_masking
+
+
+def get_shape_key_names(rig) -> set:
+    keys = set()
+    for obj in rig.children:
+        if utils.object_exists_has_shape_keys(obj):
+            for i, key in enumerate(obj.data.shape_keys.key_blocks):
+                if i > 0:
+                    keys.add(key.name)
+    return keys
+
+
+def remove_bone_from_channelbag(channelbag, bone_name):
+    path = f"pose.bones[\"{bone_name}\"]"
+    to_remove = []
+    # TODO which Blender versions does this work in?
+    fcurves = channelbag.fcurves
+    for fcurve in fcurves:
+        if fcurve.data_path.startswith(path):
+            to_remove.append(fcurve)
+    for fcurve in to_remove:
+        fcurves.remove(fcurve)
+
+
+def remove_key_from_channelbag(channelbag, key_name):
+    path = f"key_blocks[\"{key_name}\"]"
+    to_remove = []
+    # TODO which Blender versions does this work in?
+    fcurves = channelbag.fcurves
+    for fcurve in fcurves:
+        if fcurve.data_path.startswith(path):
+            to_remove.append(fcurve)
+    for fcurve in to_remove:
+        fcurves.remove(fcurve)
+
+
+def resample_blend(chr_cache, rig,
+                   motion_rig_channel, motion_key_channels, motion_data_channel,
+                   stored_rig_channel, stored_key_channels, stored_data_channel,
+                   key_targets,
+                   from_frame, to_frame,
+                   relative_root=False,
+                   current_root=False,
+                   bone_names=None,
+                   key_names=None,
+                   data_paths=None,
+                   use_blend=False,
+                   blend_in_frames=0,
+                   blend_out_frames=0,
+                   blend_in_data=None,
+                   blend_out_data=None,
+                   overall_strength=1.0):
+    """Resamples the motion set, and blends with the stored motion set"""
+
+    # clamp overall_strength
+    overall_strength = max(0, min(1, overall_strength))
+
+    blend_mask_bones = {}
+    use_mask_bones = False
+    blend_mask_keys = {}
+    use_mask_keys = False
+    blend_mask_data = {}
+    use_mask_data = False
+
+    if chr_cache and rig.type == "ARMATURE":
+        blend_mask_bones, use_mask_bone_blend, use_mask_bones = get_blend_mask_bones(chr_cache)
+        blend_mask_keys, use_mask_key_blend, use_mask_keys = get_blend_mask_keys(chr_cache)
+
+    if rig.type == "LIGHT":
+        ...
+
+    if rig.type == "CAMERA":
+        ...
+
+    overall_strength = overall_strength if use_blend else 1.0
+
+    frame_range = to_frame - from_frame + 1
+    total_blend_frames = blend_in_frames + blend_out_frames
+    if total_blend_frames > frame_range:
+        blend_in_frames = round(frame_range * blend_in_frames / total_blend_frames)
+        blend_out_frames = frame_range - blend_in_frames
+        utils.log_warn(f"Blend range larger than motion. Rescaling to - in: {blend_in_frames}, out: {blend_out_frames}")
+
+    if (not relative_root and
+        not current_root and
+        not use_blend):
+        return
+
+    utils.log_info(f"Resampling motion: {from_frame} - {to_frame}, blend in: {blend_in_frames}, blend out: {blend_out_frames}, use_blend: {use_blend}")
+
+    # resample bone tracks
+    #
+    if rig.type == "ARMATURE":
+
+        if not bone_names:
+            if use_blend:
+                bone_names = [ b.name for b in rig.pose.bones ]
+            elif relative_root or current_root:
+                bone_names = [ rig.pose.bones[0].name ]
+
+        blend_bone_curves(motion_rig_channel, stored_rig_channel,
+                          from_frame, to_frame,
+                          rig, bone_names, relative_root, current_root,
+                          use_blend, overall_strength,
+                          blend_in_frames, blend_out_frames,
+                          blend_in_data, blend_out_data,
+                          use_mask_bones, blend_mask_bones)
+
+        blend_data_curves(motion_rig_channel, stored_rig_channel,
+                          from_frame, to_frame,
+                          use_blend, overall_strength,
+                          blend_in_frames, blend_out_frames,
+                          blend_in_data, blend_out_data)
+
+    # resample shape key tracks
+    #
+    if rig.type == "ARMATURE":
+
+        if not key_names:
+            key_names = get_shape_key_names(rig) if use_blend else []
+
+        for obj_name in key_targets:
+
+            motion_key_channel = motion_key_channels[obj_name] \
+                                    if obj_name in motion_key_channels \
+                                    else (None, None, None)
+            stored_key_channel = stored_key_channels[obj_name] \
+                                    if obj_name in stored_key_channels \
+                                    else (None, None, None)
+
+            blend_key_curves(motion_key_channel, stored_key_channel,
+                             from_frame, to_frame,
+                             obj_name, key_names,
+                             use_blend, overall_strength,
+                             blend_in_frames, blend_out_frames,
+                             blend_in_data, blend_out_data,
+                             use_mask_keys, blend_mask_keys)
+
+    # process data
+    #
+    if rig.type == "LIGHT" or rig.type == "CAMERA":
+
+        blend_data_curves(motion_rig_channel, stored_rig_channel,
+                          from_frame, to_frame,
+                          use_blend, overall_strength,
+                          blend_in_frames, blend_out_frames,
+                          blend_in_data, blend_out_data)
+
+        blend_data_curves(motion_data_channel, stored_data_channel,
+                          from_frame, to_frame,
+                          use_blend, overall_strength,
+                          blend_in_frames, blend_out_frames,
+                          blend_in_data, blend_out_data)
+    return
+
+
+def blend_bone_curves(motion_channel, stored_channel,
+                      from_frame, to_frame,
+                      rig, bone_names, relative_root, current_root,
+                      use_blend, overall_strength,
+                      blend_in_frames, blend_out_frames,
+                      blend_in_data, blend_out_data,
+                      use_mask_bones, blend_mask_bones):
+
+    motion_action, motion_slot, motion_channelbag = motion_channel
+    stored_action, stored_slot, stored_channelbag = stored_channel
+
+    base_frames = set()
+    # include all blend in / out frames
+    if blend_in_frames > 0:
+        for i in range(from_frame, from_frame + blend_in_frames - 1 + 1):
+            base_frames.add(i)
+    if blend_out_frames > 0:
+        for i in range(to_frame - blend_out_frames + 1, to_frame + 1):
+            base_frames.add(i)
+
+    root_bone: bpy.types.PoseBone = rig.pose.bones[0]
+
+    for bone_name in bone_names:
+
+        is_root = (bone_name == root_bone.name)
+        motion_transform_set, motion_has_curves = fetch_action_bone_transform_set(motion_channelbag, bone_name)
+        stored_transform_set, stored_has_curves = fetch_action_bone_transform_set(stored_channelbag, bone_name)
+
+        if not motion_has_curves and not stored_has_curves:
+            continue
+
+        if is_root and relative_root:
+            # relative transformation between from_frame of stored motion and start of new motion
+            stored_start_loc, stored_start_rot = evaluate_action_bone_transform_set(stored_transform_set, from_frame)
+            motion_start_loc, motion_start_rot = evaluate_action_bone_transform_set(motion_transform_set, 1)
+            MS = utils.make_transform_matrix(stored_start_loc, stored_start_rot)
+            MM = utils.make_transform_matrix(motion_start_loc, motion_start_rot)
+            MD = MS @ MM.inverted()
+        elif is_root and current_root:
+            # relative transformation between current rig root bone position and start of new motion
+            motion_start_loc, motion_start_rot = evaluate_action_bone_transform_set(motion_transform_set, 1)
+            MS = root_bone.matrix.copy()
+            MM = utils.make_transform_matrix(motion_start_loc, motion_start_rot)
+            MD = MS @ MM.inverted()
+
+
+        utils.log_detail(f"Blending motion bone: {bone_name} {from_frame}-{to_frame}")
+
+        # build a list of motion bone transform fcurves
+        motion_loc_curves, motion_rot_curves = motion_transform_set
+        motion_curves = motion_loc_curves + motion_rot_curves
+        # should be 7
+        num_curves = len(motion_curves)
+
+        # build a list of stored bone transform fcurves
+        stored_loc_curves, stored_rot_curves = stored_transform_set
+        stored_curves = stored_loc_curves + stored_rot_curves
+
+        frames = base_frames.copy()
+
+        # include all frames from the motion curve
+        fcurve: bpy.types.FCurve = None
+        for fcurve in motion_curves:
+            if fcurve:
+                num_points = len(fcurve.keyframe_points)
+                data = [0.0, 0.0] * num_points
+                fcurve.keyframe_points.foreach_get('co', data)
+                for i in range(0, len(data), 2):
+                    frame = data[i]
+                    frames.add(frame)
+
+        # include all frames from the source curve
+        if use_blend:
+            for fcurve in stored_curves:
+                if fcurve:
+                    num_points = len(fcurve.keyframe_points)
+                    data = [0.0, 0.0] * num_points
+                    fcurve.keyframe_points.foreach_get('co', data)
+                    for i in range(0, len(data), 2):
+                        frame = data[i]
+                        frames.add(frame)
+
+        # sort the frames in order
+        num_frames = len(frames)
+        sorted_frames = list(frames)
+        sorted_frames.sort()
+        utils.log_detail(f" - {num_frames} resampled frames")
+
+        # generate resampled data lists for the curves in the motion bone transform
+        resampled_data = []
+        for i in range(0, num_curves):
+            data = [0.0, 0.0] * num_frames
+            resampled_data.append(data)
+
+        # evaluate the motion root transform at each frame ...
+        for f, frame in enumerate(sorted_frames):
+            motion_loc, motion_rot = evaluate_action_bone_transform_set(motion_transform_set, frame)
+
+            # apply relative root:
+            if is_root and (relative_root or current_root):
+                motion_loc, motion_rot = evaluate_action_bone_transform_set(motion_transform_set, frame)
+                MF = utils.make_transform_matrix(motion_loc, motion_rot)
+                MR = MD @ MF
+                motion_loc = MR.to_translation()
+                motion_rot = MR.to_quaternion()
+
+            # if blending, apply motion blend:
+            if use_blend:
+                blend_strength = overall_strength
+                stored_loc, stored_rot = evaluate_action_bone_transform_set(stored_transform_set, frame)
+
+                if frame < from_frame or frame > to_frame:
+                    blend_strength = 0
+                elif blend_in_frames > 0 and frame < (from_frame + blend_in_frames):
+                    pos = (frame - from_frame + 1) / (blend_in_frames + 1)
+                    blend_strength *= ui.eval_curve(blend_in_data, pos)
+                elif blend_out_frames > 0 and frame > (to_frame - blend_out_frames):
+                    pos = (frame - to_frame + blend_out_frames) / (blend_out_frames + 1)
+                    blend_strength *= ui.eval_curve(blend_out_data, pos)
+                if use_mask_bones:
+                    if bone_name in blend_mask_bones:
+                        blend_strength *= blend_mask_bones[bone_name]
+                    else:
+                        blend_strength = 0.0
+
+                if blend_strength <= 0:
+                    blend_loc = stored_loc
+                    blend_rot = stored_rot
+                elif blend_strength >= 1:
+                    blend_loc = motion_loc
+                    blend_rot = motion_rot
+                else:
+                    blend_loc = stored_loc.lerp(motion_loc, blend_strength)
+                    blend_rot = stored_rot.slerp(motion_rot, blend_strength)
+
+            # if not blending, use the motion transform directly
+            else:
+                blend_loc = motion_loc
+                blend_rot = motion_rot
+
+            transform_data = [blend_loc.x, blend_loc.y, blend_loc.z,
+                                blend_rot.w, blend_rot.x, blend_rot.y, blend_rot.z]
+
+            # write frame to the resampled curve data:
+            index = f * 2
+            for i in range(0, num_curves):
+                resampled_data[i][index] = frame
+                resampled_data[i][index+1] = transform_data[i]
+
+        # write the resampled curve data back to the motion transform curves:
+        for i, fcurve in enumerate(motion_curves):
+            if not fcurve:
+                fcurve = clone_fcurve_to_channel(stored_curves[i], motion_channelbag)
+                if fcurve:
+                    utils.log_detail(f"Added bone fcurve {bone_name}[{i}]")
+            if fcurve:
+                fcurve.keyframe_points.clear()
+                fcurve.keyframe_points.add(num_frames)
+                fcurve.keyframe_points.foreach_set('co', resampled_data[i])
+                reset_fcurve_interpolation(fcurve)
+
+
+def blend_key_curves(motion_channel, stored_channel,
+                     from_frame, to_frame,
+                     obj_name, key_names,
+                     use_blend, overall_strength,
+                     blend_in_frames, blend_out_frames,
+                     blend_in_data, blend_out_data,
+                     use_mask_keys, blend_mask_keys):
+
+    motion_action, motion_slot, motion_channelbag = motion_channel
+    stored_action, stored_slot, stored_channelbag = stored_channel
+
+    base_frames = set()
+    # include all blend in / out frames
+    if blend_in_frames > 0:
+        for i in range(from_frame, from_frame + blend_in_frames - 1 + 1):
+            base_frames.add(i)
+    if blend_out_frames > 0:
+        for i in range(to_frame - blend_out_frames + 1, to_frame + 1):
+            base_frames.add(i)
+
+    for key_name in key_names:
+
+        obj = bpy.data.objects[obj_name]
+        if not utils.object_has_shape_key(obj, key_name):
+            continue
+
+        stored_key_curve = fetch_action_key_curve(stored_channelbag, key_name)
+        motion_key_curve = fetch_action_key_curve(motion_channelbag, key_name)
+
+        if not stored_key_curve and not motion_key_curve:
+            continue
+
+        utils.log_detail(f"Blending motion key: {key_name} {from_frame}-{to_frame}")
+
+        # go through motion bone transform fcurves and build a list of discrete frames
+        frames = base_frames.copy()
+        fcurve: bpy.types.FCurve = None
+
+        # add frames from the motion curve
+        num_points = len(motion_key_curve.keyframe_points)
+        data = [0.0, 0.0] * num_points
+        if motion_key_curve:
+            motion_key_curve.keyframe_points.foreach_get('co', data)
+            for i in range(0, len(data), 2):
+                frame = data[i]
+                frames.add(frame)
+
+        # also include frames from the source curve
+        if use_blend:
+            if stored_key_curve:
+                num_points = len(stored_key_curve.keyframe_points)
+                data = [0.0, 0.0] * num_points
+                stored_key_curve.keyframe_points.foreach_get('co', data)
+                for i in range(0, len(data), 2):
+                    frame = data[i]
+                    frames.add(frame)
+
+        # sort the frames in order
+        num_frames = len(frames)
+        sorted_frames = list(frames)
+        sorted_frames.sort()
+        utils.log_detail(f" - {num_frames} resampled frames")
+
+        # generate resampled data lists for the motion curve
+        resampled_data = [0.0, 0.0] * num_frames
+
+        # evaluate the motion curve at each frame ...
+        for f, frame in enumerate(sorted_frames):
+            motion_value = evaluate_action_curve(motion_key_curve, frame)
+
+            # if blending, apply motion blend:
+            if use_blend:
+                blend_strength = overall_strength
+                stored_value = evaluate_action_curve(stored_key_curve, frame)
+
+                if frame < from_frame or frame > to_frame:
+                    blend_strength = 0
+                elif blend_in_frames > 0 and frame < (from_frame + blend_in_frames):
+                    pos = (frame - from_frame + 1) / (blend_in_frames + 1)
+                    blend_strength *= ui.eval_curve(blend_in_data, pos)
+                elif blend_out_frames > 0 and frame > (to_frame - blend_out_frames):
+                    pos = (frame - to_frame + blend_out_frames) / (blend_out_frames + 1)
+                    blend_strength *= ui.eval_curve(blend_out_data, pos)
+                if use_mask_keys:
+                    if key_name in blend_mask_keys:
+                        blend_strength *= blend_mask_keys[key_name]
+                    else:
+                        blend_strength = 0.0
+
+                if blend_strength <= 0:
+                    blend_value = stored_value
+                elif blend_strength >= 1:
+                    blend_value = motion_value
+                else:
+                    blend_value = utils.lerp(stored_value, motion_value, blend_strength)
+
+            # otherwise use motion value directly
+            else:
+                blend_value = motion_value
+
+            # write frame to the resampled curve data:
+            index = f * 2
+            resampled_data[index] = frame
+            resampled_data[index+1] = blend_value
+
+        # write the resampled curve data back to the motion curve:
+        if not motion_key_curve:
+            motion_key_curve = clone_fcurve_to_channel(stored_key_curve, motion_channelbag)
+            if motion_key_curve:
+                utils.log_detail(f"Added key fcurve {obj_name}/{key_name}")
+        if motion_key_curve:
+            motion_key_curve.keyframe_points.clear()
+            motion_key_curve.keyframe_points.add(num_frames)
+            motion_key_curve.keyframe_points.foreach_set('co', resampled_data)
+            reset_fcurve_interpolation(motion_key_curve)
+
+
+def blend_data_curves(motion_channel, stored_channel,
+                      from_frame, to_frame,
+                      use_blend, overall_strength,
+                      blend_in_frames, blend_out_frames,
+                      blend_in_data, blend_out_data):
+
+    motion_action, motion_slot, motion_channelbag = motion_channel
+    stored_action, stored_slot, stored_channelbag = stored_channel
+
+    base_frames = set()
+    # include all blend in / out frames
+    if blend_in_frames > 0:
+        for i in range(from_frame, from_frame + blend_in_frames - 1 + 1):
+            base_frames.add(i)
+    if blend_out_frames > 0:
+        for i in range(to_frame - blend_out_frames + 1, to_frame + 1):
+            base_frames.add(i)
+
+    paths = {}
+    if motion_channelbag:
+        for fcurve in motion_channelbag.fcurves:
+            if (fcurve.data_path.startswith("pose.bones") or
+                fcurve.data_path.startswith("key_blocks")):
+                continue
+            path_id = (fcurve.data_path, fcurve.array_index)
+            paths[path_id] = [fcurve, None]
+    if stored_channelbag:
+        for fcurve in stored_channelbag.fcurves:
+            if (fcurve.data_path.startswith("pose.bones") or
+                fcurve.data_path.startswith("key_blocks")):
+                continue
+            path_id = (fcurve.data_path, fcurve.array_index)
+            if path_id in paths:
+                paths[path_id][1] = fcurve
+            else:
+                paths[path_id] = [None, fcurve]
+
+    for path_id, curves in paths.items():
+        data_path, array_index = path_id
+        motion_data_curve = curves[0]
+        stored_data_curve = curves[1]
+
+        utils.log_detail(f"Blending motion data: {data_path} {from_frame}-{to_frame}")
+
+        # go through motion bone transform fcurves and build a list of discrete frames
+        frames = base_frames.copy()
+        fcurve: bpy.types.FCurve = None
+
+        # add frames from the motion curve
+        if motion_data_curve:
+            num_points = len(motion_data_curve.keyframe_points)
+            data = [0.0, 0.0] * num_points
+            motion_data_curve.keyframe_points.foreach_get('co', data)
+            for i in range(0, len(data), 2):
+                frame = data[i]
+                frames.add(frame)
+
+        # also include frames from the source curve
+        if use_blend:
+            if stored_data_curve:
+                num_points = len(stored_data_curve.keyframe_points)
+                data = [0.0, 0.0] * num_points
+                stored_data_curve.keyframe_points.foreach_get('co', data)
+                for i in range(0, len(data), 2):
+                    frame = data[i]
+                    frames.add(frame)
+
+        # sort the frames in order
+        num_frames = len(frames)
+        sorted_frames = list(frames)
+        sorted_frames.sort()
+        utils.log_detail(f" - {num_frames} resampled frames")
+
+        # generate resampled data lists for the motion curve
+        resampled_data = [0.0, 0.0] * num_frames
+
+        # evaluate the motion curve at each frame ...
+        for f, frame in enumerate(sorted_frames):
+            motion_value = evaluate_action_curve(motion_data_curve, frame)
+
+            # if blending, apply motion blend:
+            if use_blend:
+                blend_strength = overall_strength
+                stored_value = evaluate_action_curve(stored_data_curve, frame)
+
+                if frame < from_frame or frame > to_frame:
+                    blend_strength = 0
+                elif blend_in_frames > 0 and frame < (from_frame + blend_in_frames):
+                    pos = (frame - from_frame + 1) / (blend_in_frames + 1)
+                    blend_strength *= ui.eval_curve(blend_in_data, pos)
+                elif blend_out_frames > 0 and frame > (to_frame - blend_out_frames):
+                    pos = (frame - to_frame + blend_out_frames) / (blend_out_frames + 1)
+                    blend_strength *= ui.eval_curve(blend_out_data, pos)
+                #if use_mask_paths:
+                #    if data_path in blend_mask_paths:
+                #        blend_strength *= blend_mask_paths[data_path]
+                #    else:
+                #        blend_strength = 0.0
+
+                if blend_strength <= 0:
+                    blend_value = stored_value
+                elif blend_strength >= 1:
+                    blend_value = motion_value
+                else:
+                    blend_value = utils.lerp(stored_value, motion_value, blend_strength)
+
+            # otherwise use motion value directly
+            else:
+                blend_value = motion_value
+
+            # write frame to the resampled curve data:
+            index = f * 2
+            resampled_data[index] = frame
+            resampled_data[index+1] = blend_value
+
+        # write the resampled curve data back to the motion curve:
+        if not motion_data_curve:
+            motion_data_curve = clone_fcurve_to_channel(stored_data_curve, motion_channelbag)
+            if motion_data_curve:
+                utils.log_detail(f"Added data fcurve {path_id}")
+        if motion_data_curve:
+            motion_data_curve.keyframe_points.clear()
+            motion_data_curve.keyframe_points.add(num_frames)
+            motion_data_curve.keyframe_points.foreach_set('co', resampled_data)
+            reset_fcurve_interpolation(motion_data_curve)
+
+
+def get_relative_transformation(motion_loc: Vector, motion_rot: Quaternion,
+                           stored_loc: Vector, stored_rot: Quaternion):
+    delta_loc = stored_loc - motion_loc
+    M: Matrix = motion_rot.to_matrix().to_4x4()
+    S: Matrix = stored_rot.to_matrix().to_4x4()
+    D = M.inverted() @ S
+    return delta_loc, D
+
+
+def fetch_action_key_curve(channelbag, key_name: str):
+    if channelbag and key_name:
+        key_path = f"key_blocks[\"{key_name}\"].value"
+        for fcurve in channelbag.fcurves:
+            if fcurve.data_path == key_path:
+                return fcurve
+    return None
+
+
+def fetch_action_bone_transform_set(channelbag, bone_name: str):
+    # TODO instead build a dict in one pass of transforms[bone_name] = (loc[fx,fy,fz], rot[fw,fx,fy,fz])
+    fcurve: bpy.types.FCurve = None
+    loc_path = f"pose.bones[\"{bone_name}\"].location"
+    rot_path = f"pose.bones[\"{bone_name}\"].rotation_quaternion"
+    # TODO what if it's not a quaternion?
+    loc_curves = [None, None, None]
+    rot_curves = [None, None, None, None]
+    has_loc_curves = False
+    has_rot_curves = False
+    for fcurve in channelbag.fcurves:
+        if fcurve.data_path == loc_path:
+            loc_curves[fcurve.array_index] = fcurve
+            has_loc_curves = True
+        elif fcurve.data_path == rot_path:
+            rot_curves[fcurve.array_index] = fcurve
+            has_rot_curves = True
+    return (loc_curves, rot_curves), has_loc_curves or has_rot_curves
+
+
+def evaluate_action_bone_transform_set(transform_set: tuple, frame: int):
+    loc_curves, rot_curves = transform_set
+    try:
+        loc = Vector((loc_curves[0].evaluate(frame),
+                      loc_curves[1].evaluate(frame),
+                      loc_curves[2].evaluate(frame)))
+    except:
+        loc = Vector((0,0,0))
+    try:
+        rot = Quaternion((rot_curves[0].evaluate(frame),
+                          rot_curves[1].evaluate(frame),
+                          rot_curves[2].evaluate(frame),
+                          rot_curves[3].evaluate(frame)))
+    except:
+        rot = Quaternion((1,0,0,0))
+    return loc, rot
+
+
+def evaluate_action_curve(key_curve: tuple, frame: int):
+    try:
+        value = key_curve.evaluate(frame)
+    except:
+        value = 0.0
+    return value
+#endregion
+
+
+#region Operators
+class CCICMotionSetFunctions(bpy.types.Operator):
+    bl_idname = "ccic.motion_set_funcs"
+    bl_label = "Motion Set Functions"
+    bl_options = {"REGISTER", "UNDO", "INTERNAL"}
+
+    param: bpy.props.StringProperty(
+            name = "param",
+            default = ""
+        )
+
+    def execute(self, context):
+        props = vars.props()
+
+        props.store_ui_list_indices()
+        action = props.action_set_list_action
+        #chr_cache = props.get_context_character_cache(context)
+
+        if self.param == "DELETE":
+            delete_motion_set(action)
+
+        elif self.param == "DUPLICATE":
+            duplicate_motion_set(action)
+
+        return {"FINISHED"}
+
+    @classmethod
+    def description(cls, context, properties):
+        return "Show motion set info"
+
+
+class CCICMotionSetRename(bpy.types.Operator):
+    bl_idname = "ccic.motion_set_rename"
+    bl_label = "Rename Motion Set"
+
+    action: bpy.props.StringProperty(name="Action", default="")
+    prefix: bpy.props.StringProperty(name="Motion Prefix", default="")
+    rig_id: bpy.props.StringProperty(name="Character / Rig ID", default="")
+    motion_id: bpy.props.StringProperty(name="Motion Name / ID", default="")
+    set_id = bpy.props.StringProperty(name="Set ID", default="")
+    action_type = bpy.props.StringProperty(name="Action Type", default="")
+
+    def execute(self, context):
+        rename_motion_set(self.action_type, self.set_id, self.prefix, self.rig_id, self.motion_id)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        props = vars.props()
+        prefs = vars.prefs()
+
+        props.store_ui_list_indices()
+        action = props.action_set_list_action
+        self.action = action.name
+        chr_cache = props.get_context_character_cache(context)
+
+        if not action:
+            return {"FINISHED"}
+
+        set_id, set_generation, action_type_id, key_object = get_motion_set_ids(action)
+        self.action_type = action_type_id
+
+        if not set_id:
+            return {"FINISHED"}
+
+        self.set_id = set_id
+
+        prefix, rig_id, type_id, obj_id, motion_id = decode_action_name(action)
+        if prefix:
+            self.prefix = prefix
+        else:
+            self.prefix = ""
+        if rig_id:
+            self.rig_id = rig_id
+        else:
+            self.rig_id = ""
+        if motion_id:
+            self.motion_id = motion_id
+        elif action.name:
+            self.motion_id = action.name.split("|")[-1]
+        else:
+            self.motion_id = "Motion"
+
+        return context.window_manager.invoke_props_dialog(self, width=400)
+
+    def draw(self, context):
+        layout = self.layout
+
+        split = layout.split(factor=0.35)
+        col_1 = split.column()
+        col_2 = split.column()
+
+        col_1.label(text="Motion Set ID:")
+        col_2.label(text=self.set_id)
+
+        col_1.separator()
+        col_2.separator()
+
+        col_1.label(text="Prefix:")
+        col_2.prop(self, "prefix", text="")
+
+        col_1.separator()
+        col_2.separator()
+
+        col_1.label(text="Character / Rig ID:")
+        col_2.prop(self, "rig_id", text="")
+
+        col_1.separator()
+        col_2.separator()
+
+        col_1.label(text="Motion Name / ID:")
+        col_2.prop(self, "motion_id", text="")
+
+        layout.separator()
+
+    @classmethod
+    def description(cls, context, properties):
+        return "Change the name, prefix, and character/rig id of the motion set"
+
+
+class CCICMotionSetInfo(bpy.types.Operator):
+    bl_idname = "ccic.motion_set_info"
+    bl_label = "Motion Set Info"
+
+    prefix: bpy.props.StringProperty(name="Motion Prefix", default="")
+    rig_id: bpy.props.StringProperty(name="Character / Rig ID", default="")
+    motion_id: bpy.props.StringProperty(name="Motion Name / ID", default="")
+    set_id: bpy.props.StringProperty(name="Set ID", default="")
+
+    def execute(self, context):
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        props = vars.props()
+        prefs = vars.prefs()
+
+        props.store_ui_list_indices()
+        action = props.action_set_list_action
+        chr_cache = props.get_context_character_cache(context)
+
+        self.delete_me = False
+        # TODO make delete an op button?
+        # TODO use_fake_user button
+
+        if not action:
+            return {"FINISHED"}
+
+        set_id, set_generation, action_type_id, key_object = get_motion_set_ids(action)
+
+        if not set_id:
+            return {"FINISHED"}
+
+        self.set_id = set_id
+
+        prefix, rig_id, type_id, obj_id, motion_id = decode_action_name(action)
+        if prefix:
+            self.prefix = prefix
+        if rig_id:
+            self.rig_id = rig_id
+        elif chr_cache:
+            self.rig_id = chr_cache.character_name
+        else:
+            self.rig_id = "Rig"
+        if motion_id:
+            self.motion_id = motion_id
+        elif action.name:
+            self.motion_id = action.name.split("|")[-1]
+        else:
+            self.motion_id = "Motion"
+
+        return context.window_manager.invoke_popup(self, width=600)
+
+    def draw(self, context):
+        layout = self.layout
+
+        split = layout.split(factor=0.25)
+        col_1 = split.column()
+        col_2 = split.column()
+
+        col_1.label(text="Motion Set ID:")
+        col_2.label(text=self.set_id)
+
+        col_1.separator()
+        col_2.separator()
+
+        col_1.label(text="Prefix:")
+        col_2.label(text=self.prefix if self.prefix else "(None)")
+        col_1.label(text="Character / Rig ID:")
+        col_2.label(text=self.rig_id if self.rig_id else "(None)")
+        col_1.label(text="Motion Name / ID:")
+        col_2.label(text=self.motion_id if self.motion_id else "(None)")
+
+        layout.separator()
+
+        layout.label(text="Actions:")
+
+        split = layout.split(factor=0.25)
+        col_1 = split.column()
+        col_2 = split.column()
+        for action in bpy.data.actions:
+            action_set_id = utils.get_prop(action, "rl_set_id")
+            action_type = utils.get_prop(action, "rl_action_type")
+            if action_set_id == self.set_id:
+                if action_type == "ARM":
+                    col_1.label(text="Armature")
+                elif action_type == "KEY":
+                    obj_id = utils.get_prop(action, "rl_key_object", "(None)")
+                    col_1.label(text=obj_id)
+                else:
+                    col_1.label(text="?")
+                col_2.label(text=action.name)
+        col_1.separator()
+        col_2.separator()
+        col_1.separator()
+        row = col_2.split(factor=0.5).column().row()
+        row.alert = True
+        row.scale_y = 1.5
+        row.operator("ccic.rigutils", text="Delete Motion Set", icon="ERROR").param = "DELETE_MOTION_SET"
+        layout.separator()
+        layout.separator()
+        layout.separator()
+
+    @classmethod
+    def description(cls, context, properties):
+        return "Show motion set info"
+
+
+class CCICRigUtils(bpy.types.Operator):
+    """Rig Utilities"""
+    bl_idname = "ccic.rigutils"
+    bl_label = "Rig Utils"
+    bl_options = {"REGISTER"}
+
+    param: bpy.props.StringProperty(
+            name = "param",
+            default = "",
+            options={"HIDDEN"}
+        )
+
+    def execute(self, context):
+        props = vars.props()
+        prefs = vars.prefs()
+        chr_cache = props.get_context_character_cache(context)
+        rig = chr_cache.get_armature() if chr_cache else None
+
+        if chr_cache:
+
+            props.store_ui_list_indices()
+
+            if rig:
+                if self.param == "TOGGLE_SHOW_FULL_RIG":
+                    toggle_show_full_rig(rig)
+
+                elif self.param == "TOGGLE_SHOW_BASE_RIG":
+                    toggle_show_base_rig(rig)
+
+                elif self.param == "TOGGLE_SHOW_SPRING_RIG":
+                    toggle_show_spring_rig(rig)
+
+                elif self.param == "TOGGLE_SHOW_RIG_POSE":
+                    toggle_rig_rest_position(rig)
+
+                elif self.param == "TOGGLE_SHOW_SPRING_BONES":
+                    springbones.toggle_show_spring_bones(chr_cache)
+
+                elif self.param == "TOGGLE_EXPRESSION_RIG_LOCK":
+                    facerig.toggle_lock_position(chr_cache, rig)
+
+                elif self.param == "BUTTON_RESET_POSE_SELECTED":
+                    mode_selection = utils.store_mode_selection_state()
+                    reset_pose(rig, use_selected=True)
+                    utils.restore_mode_selection_state(mode_selection)
+
+                elif self.param == "BUTTON_RESET_POSE":
+                    mode_selection = utils.store_mode_selection_state()
+                    reset_pose(rig, use_selected=False)
+                    utils.restore_mode_selection_state(mode_selection)
+
+                elif self.param == "RESET_EXPRESSION_POSE":
+                    if chr_cache.rigified:
+                        mode_selection = utils.store_mode_selection_state()
+                        facerig.clear_expression_pose(chr_cache, rig)
+                        utils.restore_mode_selection_state(mode_selection)
+
+                elif self.param == "RESET_EXPRESSION_POSE_SELECTED":
+                    if chr_cache.rigified:
+                        mode_selection = utils.store_mode_selection_state()
+                        facerig.clear_expression_pose(chr_cache, rig, selected=True)
+                        utils.restore_mode_selection_state(mode_selection)
+
+                elif self.param == "TOGGLE_SHOW_FACE_RIG":
+                    toggle_show_only_face_rig(rig)
+
+                elif self.param == "SET_LIMB_FK":
+                    if chr_cache.rigified:
+                        set_rigify_ik_fk_influence(rig, 1.0)
+                        poke_rig(rig)
+
+                elif self.param == "SET_LIMB_IK":
+                    if chr_cache.rigified:
+                        set_rigify_ik_fk_influence(rig, 0.0)
+                        poke_rig(rig)
+
+                elif self.param == "LOAD_MOTION_SET":
+                    action = props.action_set_list_action
+                    load_motion_set(rig, action)
+
+                elif self.param == "PUSH_ACTION_SET":
+                    action = props.action_set_list_action
+                    auto_index = chr_cache.get_auto_index()
+                    push_motion_set(rig, action, auto_index)
+
+                elif self.param == "CLEAR_ACTION_SET":
+                    clear_motion_set(rig)
+
+                elif self.param == "NEW_ACTION_SET":
+                    new_motion_set(rig)
+
+                elif self.param == "DISABLE_CONSTRAINT_STRETCH":
+                    mode_selection = utils.store_mode_selection_state()
+                    rigify_rig = chr_cache.get_armature()
+                    disable_ik_stretch(rigify_rig)
+                    utils.restore_mode_selection_state(mode_selection)
+
+                elif self.param == "ENABLE_CONSTRAINT_STRETCH":
+                    mode_selection = utils.store_mode_selection_state()
+                    rigify_rig = chr_cache.get_armature()
+                    restore_ik_stretch(rigify_rig=rigify_rig)
+                    utils.restore_mode_selection_state(mode_selection)
+
+            if self.param == "SELECT_SET_STRIPS":
+                strip = context.active_nla_strip
+                select_strips_by_set(strip)
+
+            elif self.param == "NLA_ALIGN_LEFT":
+                strips = context.selected_nla_strips
+                align_strips(strips, left=True)
+
+            elif self.param == "NLA_ALIGN_TO_LEFT":
+                strips = context.selected_nla_strips
+                active_strip = context.active_nla_strip
+                align_strips(strips, to_strip=active_strip, left=True)
+
+            elif self.param == "NLA_ALIGN_RIGHT":
+                strips = context.selected_nla_strips
+                align_strips(strips, left=False)
+
+            elif self.param == "NLA_ALIGN_TO_RIGHT":
+                strips = context.selected_nla_strips
+                active_strip = context.active_nla_strip
+                align_strips(strips, to_strip=active_strip, left=False)
+
+            elif self.param == "NLA_SIZE_SHORTEST":
+                strips = context.selected_nla_strips
+                size_strips(strips, longest=False)
+
+            elif self.param == "NLA_SIZE_LONGEST":
+                strips = context.selected_nla_strips
+                size_strips(strips, longest=True)
+
+            elif self.param == "NLA_SIZE_TO":
+                strips = context.selected_nla_strips
+                active_strip = context.active_nla_strip
+                size_strips(strips, to_strip=active_strip)
+
+            elif self.param == "NLA_RESET_SIZE":
+                strips = context.selected_nla_strips
+                size_strips(strips, reset=True)
+
+            elif self.param == "SET_FAKE_USER_ON":
+                action = props.action_set_list_action
+                set_action_set_fake_user(action, True)
+
+            elif self.param == "SET_FAKE_USER_OFF":
+                action = props.action_set_list_action
+                set_action_set_fake_user(action, False)
+
+            elif self.param == "DELETE_MOTION_SET":
+                action = props.action_set_list_action
+                delete_motion_set(action)
+
+            props.restore_ui_list_indices()
+
+        if self.param == "CLEAN_ACTIONS":
+            if utils.object_exists_is_camera(context.object) or utils.object_exists_is_light(context.object):
+                clean_actions(context.object)
+            elif rig:
+                clean_actions(rig)
+
+        return {"FINISHED"}
+
+    @classmethod
+    def description(cls, context, properties):
+
+        if properties.param == "TOGGLE_SHOW_SPRING_BONES":
+            return "Quick toggle for the armature layers to show just the spring bones or just the body bones"
+
+        elif properties.param == "TOGGLE_SHOW_FULL_RIG":
+            return "Toggles showing all the rig controls"
+
+        elif properties.param == "TOGGLE_SHOW_BASE_RIG":
+            return "Toggles showing the base rig controls"
+
+        elif properties.param == "TOGGLE_SHOW_SPRING_RIG":
+            return "Toggles showing just the spring rig controls"
+
+        elif properties.param == "TOGGLE_SHOW_RIG_POSE":
+            return "Toggles the rig between pose mode and rest pose"
+
+        elif properties.param == "TOGGLE_SHOW_FACE_RIG":
+            return "Toggles showing just the face expression rig controls"
+
+        elif properties.param == "TOGGLE_EXPRESSION_RIG_LOCK":
+            return "Toggle locking the position of the expression rig and making unselectable"
+
+        elif properties.param == "BUTTON_RESET_POSE":
+            return "Clears all pose transforms"
+
+        elif properties.param == "BUTTON_RESET_POSE_SELECTED":
+            return "Clears the pose on all selected bones"
+
+        elif properties.param == "RESET_EXPRESSION_POSE":
+            return "Clears the expression on all expression controls"
+
+        elif properties.param == "RESET_EXPRESSION_POSE_SELECTED":
+            return "Clears the pose on all selected expression rig bones"
+
+        elif properties.param == "LOAD_MOTION_SET":
+            return "Loads the chosen motion set (armature and shape key actions) into the all the character objects"
+
+        elif properties.param == "PUSH_ACTION_SET":
+            return "Pushes the chosen motion set (armature and shape key actions) into the NLA tracks of all the character objects at the current frame. " \
+                   "A suitable track will be chosen to fit the actions. If there is no room available a new track will be added to contain the actions"
+
+        elif properties.param == "CLEAR_ACTION_SET":
+            return "Removes all actions from the character"
+
+        elif properties.param == "SELECT_SET_STRIPS":
+            return "Selects all the strips belonging to the same motion set and strip index"
+
+        elif properties.param == "NLA_ALIGN_LEFT":
+            return "Aligns all selected strips to the left most of frame of all selected strips"
+
+        elif properties.param == "NLA_ALIGN_RIGHT":
+            return "Aligns all selected strips to right most of frame of all selected strips"
+
+        elif properties.param == "NLA_ALIGN_TO_LEFT":
+            return "Aligns all selected strips to the left hand frame of the active strip"
+
+        elif properties.param == "NLA_ALIGN_TO_RIGHT":
+            return "Aligns all selected strips to the right hand frame of the active strip"
+
+        elif properties.param == "NLA_SIZE_SHORTEST":
+            return "Sets the frame lengths of all selected strips to the length of the shortest strip in the selection"
+
+        elif properties.param == "NLA_SIZE_TO":
+            return "Sets the frame lengths of all selected strips to the length of the active strip"
+
+        elif properties.param == "NLA_SIZE_LONGEST":
+            return "Sets the frame lengths of all selected strips to the length of the longest strip in the selection"
+
+        elif properties.param == "NLA_RESET_SIZE":
+            return "Resets the frame lengths of all selected strips to the length of the underlying action"
+
+        elif properties.param == "SET_FAKE_USER_ON":
+            return "Set fake user on all actions in the motion set"
+
+        elif properties.param == "SET_FAKE_USER_OFF":
+            return "Clear fake user on all actions in the motion set"
+
+        elif properties.param == "DELETE_MOTION_SET":
+            return "Delete all actions in the motion set"
+
+        elif properties.param == "DISABLE_CONSTRAINT_STRETCH":
+            return "Disable stretch in all IK mechanisms on the rig. By default the Blender Rigify rig allows a certain amount of stretch in the bones ease IK alignment.\n" \
+                   "But in other applications, this bone stretch is not possible, disabling the IK stretch system can aid with animation alignment problems"
+
+        elif properties.param == "ENABLE_CONSTRAINT_STRETCH":
+            return "Re-enable the IK stretch mechanisms in the rig"
+
+        return ""
+
+
+class CCIC_IMPORTMIX_UL_List(bpy.types.UIList):
+
+    visible_bone_indices = []
+    visible_key_indices = []
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            layout.label(text=item.name if item else "", translate=False, icon_value=icon)
+        elif self.layout_type in {'GRID'}:
+            layout.alignment = 'CENTER'
+            layout.label(text="", icon_value=icon)
+
+    def filter_items(self, context, data, propname):
+        filtered = []
+        ordered = []
+        items = getattr(data, propname)
+        visible_indices = self.visible_bone_indices if propname == "import_bones" else self.visible_key_indices
+        visible_indices.clear()
+        filtered = [self.bitflag_filter_item] * len(items)
+        LFN = self.filter_name.lower()
+        for i, item in enumerate(items):
+            allowed = True
+            # filter by name
+            if LFN and LFN != "*":
+                if LFN not in item.name.lower():
+                    allowed = False
+            # block not allowed
+            if not allowed:
+                filtered[i] &= ~self.bitflag_filter_item
+            else:
+                visible_indices.append(i)
+        visible_indices.sort()
+        return filtered, ordered
+
+
+class CCIC_AVAILABLEMIX_UL_List(bpy.types.UIList):
+
+    # static
+    visible_bone_indices = []
+    visible_key_indices = []
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            layout.label(text=item.name if item else "", translate=False, icon_value=icon)
+        elif self.layout_type in {'GRID'}:
+            layout.alignment = 'CENTER'
+            layout.label(text="", icon_value=icon)
+
+    def is_rigify_bone(bone: bpy.types.Bone):
+        return False
+
+    def filter_items(self, context, data, propname):
+        props = vars.props()
+        filtered = []
+        ordered = []
+        items = getattr(data, propname)
+        filtered = [self.bitflag_filter_item] * len(items)
+        item : bpy.types.Action
+        chr_cache = props.get_context_character_cache(context)
+        visible_indices = self.visible_bone_indices if propname == "available_bones" else self.visible_key_indices
+        visible_indices.clear()
+        LFN = self.filter_name.lower()
+        if propname == "available_bones":
+            selected_items = [ bone_item.name for bone_item in chr_cache.action_options.import_bones ] if chr_cache else []
+        elif propname == "available_keys":
+            selected_items = [ key_item.name for key_item in chr_cache.action_options.import_keys ] if chr_cache else []
+        else:
+            selected_items = []
+        for i, item in enumerate(items):
+            allowed = item.name not in selected_items
+            # filter by name
+            if LFN and LFN != "*":
+                if LFN not in item.name.lower():
+                    allowed = False
+            # block not allowed
+            if not allowed:
+                filtered[i] &= ~self.bitflag_filter_item
+            else:
+                visible_indices.append(i)
+        visible_indices.sort()
+        return filtered, ordered
+
+
+class CCICActionImportFunctions(bpy.types.Operator):
+    """Action Import Functions"""
+    bl_idname = "ccic.action_import_functions"
+    bl_label = "Action Import Functions"
+    bl_options = {"REGISTER", "UNDO"}
+
+    param: bpy.props.StringProperty(
+            name = "param",
+            default = "",
+            options={"HIDDEN"}
+        )
+
+    def execute(self, context):
+        props = vars.props()
+        prefs = vars.prefs()
+        chr_cache = props.get_context_character_cache(context)
+        if chr_cache:
+            if self.param == "ADD_BONE":
+                self.add_bone(chr_cache)
+            elif self.param == "ADD_ALL_BONES":
+                self.add_bone(chr_cache, all=True)
+            elif self.param == "REMOVE_BONE":
+                self.remove_bone(chr_cache)
+            elif self.param == "REMOVE_ALL_BONES":
+                self.remove_bone(chr_cache, all=True)
+            elif self.param == "ADD_KEY":
+                self.add_key(chr_cache)
+            elif self.param == "ADD_ALL_KEYS":
+                self.add_key(chr_cache, all=True)
+            elif self.param == "REMOVE_KEY":
+                self.remove_key(chr_cache)
+            elif self.param == "REMOVE_ALL_KEYS":
+                self.remove_key(chr_cache, all=True)
+        return {"FINISHED"}
+
+    def find_remaining_next_index(self, visible: List[int], current, removes=False):
+        """After current index is removed from the visible list"""
+        try:
+            i = visible.index(current)
+            if i == len(visible) - 1:
+                if removes:
+                    return visible[-2]
+                else:
+                    return visible[-2]
+            else:
+                if removes:
+                    return visible[i + 1] - 1
+                else:
+                    return visible[i + 1]
+        except:
+            return -1
+
+    def has_name(self, collection, name):
+        for item in collection:
+            if item.name == name:
+                return True
+        return False
+
+    def add_bone(self, chr_cache, all=False):
+        try:
+            props = chr_cache.action_options
+            if all:
+                visible_bone_indices = CCIC_AVAILABLEMIX_UL_List.visible_bone_indices
+                for index in visible_bone_indices:
+                    try:
+                        bone_name = props.available_bones[index].name
+                        if not self.has_name(props.import_bones, bone_name):
+                            bone_item = props.import_bones.add()
+                            bone_item.name = bone_name
+                            bone_item.weight = 1.0
+                    except: ...
+                props.available_bones_index = -1
+            else:
+                bone_index = props.available_bones_index
+                bone_name = props.available_bones[bone_index].name
+                props.available_bones_index = self.find_remaining_next_index(CCIC_AVAILABLEMIX_UL_List.visible_bone_indices,
+                                                                            bone_index)
+                for bone_item in props.import_bones:
+                    if bone_item.name == bone_name:
+                        return
+                bone_item = props.import_bones.add()
+                bone_item.name = bone_name
+                bone_item.weight = 1.0
+        except: ...
+
+    def remove_bone(self, chr_cache, all=False):
+        props = chr_cache.action_options
+        if all:
+            visible_bone_indices = CCIC_IMPORTMIX_UL_List.visible_bone_indices
+            for i in range(len(visible_bone_indices), 0, -1):
+                index = visible_bone_indices[i - 1]
+                props.import_bones.remove(index)
+            props.import_bones_index = -1
+        else:
+            bone_index = props.import_bones_index
+            props.import_bones_index = self.find_remaining_next_index(CCIC_IMPORTMIX_UL_List.visible_bone_indices,
+                                                                    bone_index,
+                                                                    removes=True)
+            try:
+                props.import_bones.remove(bone_index)
+            except:
+                print(f"Unable to remove import bones index: {bone_index}")
+
+    def add_key(self, chr_cache, all=False):
+        try:
+            props = chr_cache.action_options
+            if all:
+                visible_key_indices = CCIC_AVAILABLEMIX_UL_List.visible_key_indices
+                for index in visible_key_indices:
+                    try:
+                        key_name = props.available_keys[index].name
+                        if not self.has_name(props.import_keys, key_name):
+                            key_item = props.import_keys.add()
+                            key_item.name = key_name
+                            key_item.weight = 1.0
+                    except: ...
+                props.available_bones_index = -1
+            else:
+                key_index = props.available_keys_index
+                key_name = props.available_keys[key_index].name
+                props.available_keys_index = self.find_remaining_next_index(CCIC_AVAILABLEMIX_UL_List.visible_key_indices,
+                                                                            key_index)
+                for key_item in props.import_keys:
+                    if key_item.name == key_name:
+                        return
+                key_item = props.import_keys.add()
+                key_item.name = key_name
+                key_item.weight = 1.0
+        except: ...
+
+    def remove_key(self, chr_cache, all=False):
+        props = chr_cache.action_options
+        if all:
+            visible_key_indices = CCIC_IMPORTMIX_UL_List.visible_key_indices
+            for i in range(len(visible_key_indices), 0, -1):
+                index = visible_key_indices[i - 1]
+                props.import_keys.remove(index)
+            props.import_keys_index = -1
+        else:
+            key_index = props.import_keys_index
+            props.import_keys_index = self.find_remaining_next_index(CCIC_IMPORTMIX_UL_List.visible_key_indices,
+                                                                    key_index,
+                                                                    removes=True)
+            try:
+                props.import_keys.remove(key_index)
+                if props.import_keys_index >= len(props.import_keys):
+                    props.import_keys_index = len(props.import_keys) - 1
+            except:
+                print(f"Unable to remove import keys index: {key_index}")
+
+    @classmethod
+    def description(cls, context, properties):
+        if properties.param == "ADD_BONE":
+            return "Add the selected bone to the bone mask"
+        if properties.param == "ADD_ALL_BONES":
+            return "Add all availble bones to the bone mask"
+        if properties.param == "REMOVE_BONE":
+            return "Remove the selected bone from the bone mask"
+        if properties.param == "REMOVE_ALL_BONES":
+            return "Remove all bones from the bone mask"
+        if properties.param == "ADD_KEY":
+            return "Add the selected shape key to the key mask"
+        if properties.param == "ADD_ALL_KEYS":
+            return "Add all available shape keys to the key mask"
+        if properties.param == "REMOVE_KEY":
+            return "Remove the selected key from the key mask"
+        if properties.param == "REMOVE_ALL_KEYS":
+            return "Remove all shape keys from the key mask"
+        return ""
+
+class CCICMotionBlendFunctions(bpy.types.Operator):
+    """Motion Blend Operator Functions"""
+    bl_idname = "ccic.motion_blend_funcs"
+    bl_label = "Motion Blend Functions"
+    bl_options = {"REGISTER", "UNDO"}
+
+    param: bpy.props.StringProperty(
+            name = "param",
+            default = "",
+            options={"HIDDEN"}
+        )
+
+    def get_item(self, collection, name, create=False):
+        for item in collection:
+            if item.name == name:
+                return item
+        if create:
+            item = collection.add()
+            return item
+        return None
+
+    def remove_item(self, collection, name):
+        for i, item in enumerate(collection):
+            if item.name == name:
+                collection.remove(i)
+
+    def save_preset(self, opts):
+        props = vars.props()
+        collections = {
+            "Bones": opts.import_bones,
+            "Keys": opts.import_keys,
+        }
+        folder = utils.get_resource_folder("Blend Presets")
+        file_name = os.path.join(folder, f"{opts.preset_mask_name}.json")
+        json_data = {}
+        if True: # dev option append preset
+            if os.path.exists(file_name):
+                file = open(file_name, "rt")
+                text_data = file.read()
+                file.close()
+                json_data = json.loads(text_data)
+        for type, collection in collections.items():
+            if type not in json_data:
+                json_data[type] = {}
+            for item in collection:
+                json_data[type][item.name] = item.weight
+        text_data = json.dumps(json_data, indent = 4)
+        with open(file_name, "w") as write_file:
+            write_file.write(text_data)
+        props.blend_mask_presets = opts.preset_mask_name
+
+    def delete_preset(self, opts):
+        props = vars.props()
+        folder = utils.get_resource_folder("Blend Presets")
+        file_name = os.path.join(folder, f"{opts.preset_mask_name}.json")
+        if os.path.exists(file_name) and os.path.isfile(file_name):
+            os.unlink(file_name)
+
+    def apply_preset(self, opts, remove=False):
+        props = vars.props()
+        folder = utils.get_resource_folder("Blend Presets")
+        preset_name = props.blend_mask_presets
+        file_name = os.path.join(folder, f"{preset_name}.json")
+        if os.path.exists(file_name):
+            file = open(file_name, "rt")
+            text_data = file.read()
+            file.close()
+            json_data = json.loads(text_data)
+            for type in json_data:
+                if type == "Bones":
+                    available = opts.available_bones
+                    collection = opts.import_bones
+                else:
+                    available = opts.available_keys
+                    collection = opts.import_keys
+                if collection is not None:
+                    for name, weight in json_data[type].items():
+                        available_item = self.get_item(available, name, create=False)
+                        if available_item:
+                            if remove:
+                                self.remove_item(collection, name)
+                            else:
+                                import_item = self.get_item(collection, name, create=True)
+                                if import_item:
+                                    import_item.name = name
+                                    import_item.weight = weight
+                                    if type == "Bones":
+                                        opts.use_bone_masking = True
+                                    else:
+                                        opts.use_key_masking = True
+
+    def execute(self, context):
+        props = vars.props()
+        prefs = vars.prefs()
+        chr_cache = props.get_context_character_cache(context, strict=True)
+
+        if chr_cache:
+
+            opts = chr_cache.action_options
+
+            if self.param == "SAVE_MODE_ON":
+                opts.mode_save_mask_preset = True
+                opts.preset_mask_name = props.blend_mask_presets
+
+            if self.param == "SAVE_MODE_OFF":
+                opts.mode_save_mask_preset = False
+
+            if self.param == "SAVE_PRESET":
+                opts.mode_save_mask_preset = False
+                self.save_preset(opts)
+
+            if self.param == "DELETE_PRESET":
+                opts.mode_save_mask_preset = False
+                self.delete_preset(opts)
+
+            if self.param == "APPLY_PRESET":
+                self.apply_preset(opts)
+
+            if self.param == "REMOVE_PRESET":
+                self.apply_preset(opts, remove=True)
+
+        return {'FINISHED'}
+
+    @classmethod
+    def description(cls, context, properties):
+        if properties.param == "SAVE_MODE_ON":
+            return "Enter Preset Save Mode"
+        if properties.param == "SAVE_MODE_ON":
+            return "Exit Preset Save Mode"
+        if properties.param == "SAVE_PRESET":
+            return "Save the preset"
+        if properties.param == "DELETE_PRESET":
+            return "Delete the preset"
+        if properties.param == "APPLY_PRESET":
+            return "Add the preset to the masks"
+        if properties.param == "REMOVE_PRESET":
+            return "Remove the preset from the masks"
+        return ""
+
+
+class CCICMotionBlend(bpy.types.Operator):
+    """Motion Import / Blend Options"""
+    bl_idname = "ccic.motion_blend"
+    bl_label = "Motion Blend Options"
+    bl_options = {"REGISTER", "UNDO"}
+
+    param: bpy.props.StringProperty(
+            name = "param",
+            default = "",
+            options={"HIDDEN"}
+        )
+
+    # pointer properties don't work in operators
+    #source_motion: bpy.props.PointerProperty(type=bpy.types.Action)
+    #target_motion: bpy.props.PointerProperty(type=bpy.types.Action)
+
+    blend_in_data_global = None
+    blend_out_data_global = None
+    blend_in_data_chr = None
+    blend_out_data_chr = None
+
+    chr_cache = None
+    objects = {}
+
+    @classmethod
+    def poll(cls, context):
+        return True
+        #props = vars.props()
+        #return props.get_context_character_cache(context) is not None
+
+    @classmethod
+    def label(cls, context, chr_cache=None):
+        props = vars.props()
+        opts = props.action_options
+        chr_opts = None
+        if not chr_cache:
+            chr_cache = props.get_context_character_cache(context, strict=True)
+        if chr_cache and chr_cache.action_options:
+            if chr_cache.action_options.override_global:
+                opts = chr_cache.action_options
+            chr_opts = chr_cache.action_options
+        action_text = {
+            "NEW": "New",
+            "REPLACE": "Replace",
+        }
+        frame_text = {
+            "START": "Start",
+            "CURRENT": "Current",
+            "MATCH": "Match",
+        }
+        mask_text = " (Mask)" if chr_opts and (chr_opts.use_bone_masking or chr_opts.use_key_masking) else " (Blend)" if opts.use_blend else ""
+        return f"{action_text[opts.get_action_mode()]} | {frame_text[opts.get_frame_mode()]}{mask_text}"
+
+    def preset_group(self, layout, opts):
+        props = vars.props()
+        row = layout.row()
+        c1, c2, c3 = utils.ui_three_column_layout(row, (3,14,3))
+        if opts.mode_save_mask_preset:
+            c1.label(text="Save Preset:")
+            c2.prop(opts, "preset_mask_name", text="")
+            r = c3.row(align=False)
+            r.operator("ccic.motion_blend_funcs", text="", icon="FILE_TICK", depress=True).param = "SAVE_MODE_OFF"
+            r.operator("ccic.motion_blend_funcs", text="", icon="CHECKMARK").param = "SAVE_PRESET"
+            r.operator("ccic.motion_blend_funcs", text="", icon="TRASH").param = "DELETE_PRESET"
+        else:
+            c1.label(text="Load Preset:")
+            c2.prop(props, "blend_mask_presets", text="")
+            r = c3.row(align=False)
+            r.operator("ccic.motion_blend_funcs", text="", icon="FILE_TICK").param = "SAVE_MODE_ON"
+            r.operator("ccic.motion_blend_funcs", text="", icon="TRIA_UP").param = "APPLY_PRESET"
+            r.operator("ccic.motion_blend_funcs", text="", icon="TRIA_DOWN").param = "REMOVE_PRESET"
+
+
+    def draw(self, context):
+        prefs = vars.prefs()
+        props = vars.props()
+        layout = self.layout
+        column = layout.column()
+
+        # prefs
+        if self.param != "BLEND":
+            column.label(text="Preferences:")
+            row = column.row()
+            grid = row.grid_flow(row_major=True, columns=2)
+            if utils.B440():
+                grid.prop(prefs, "action_use_action_slots")
+                grid.prop(prefs, "action_add_key_slots_per_obj")
+            #grid.prop(prefs, "action_clean_actions")
+            grid.prop(prefs, "action_add_empty_key_channels")
+            column.separator()
+
+        chr_override = (self.chr_cache and
+                    self.chr_cache.action_options and
+                    self.chr_cache.action_options.override_global)
+
+        # blend operator always acts on character override
+        if self.param == "BLEND":
+            chr_override = True
+            if not self.chr_cache:
+                layout.label(text="No Character Selected!")
+                return
+
+        col_1, col_2, col_3 = utils.ui_three_column_layout(column, (2, 5, 3))
+        row_3 = col_3.row()
+        if self.param == "BLEND":
+            col_1.label(text="Blend Options:")
+            col_2.label(text=f"{self.chr_cache.character_name}")
+            row_3.label(text="")
+
+        else:
+            col_1.label(text="Motion Options:")
+            if self.chr_cache:
+                col_2.prop(self.chr_cache.action_options, "override_global", text=f"All Characters", invert_checkbox=True)
+                row_3.prop(self.chr_cache.action_options, "override_global", text=f"{self.chr_cache.character_name}")
+            else:
+                col_2.label(text="Global Options")
+                row_3.label(text="")
+
+        if not chr_override:
+            opts = props.action_options
+            col_1.label(text="Action Mode:")
+            col_2.prop(opts, "action_mode", text="")
+            col_3.prop(opts, "relative_root")
+            col_1.label(text="Frame Mode:")
+            col_2.prop(opts, "frame_mode", text="")
+            #col_3.prop(opts, "current_root")
+            col_3.label(text="")
+            row = column.row()
+            row.prop(opts, "use_blend")
+            if opts.use_blend:
+                if utils.ui_fake_drop_down(row, "", opts, "show_blend_options"):
+                    grid = column.grid_flow(row_major=True, columns=2)
+                    grid.prop(opts, "blend_in_frames", text="Blend In Frames")
+                    grid.prop(opts, "blend_out_frames", text="Blend Out Frames")
+                    box_in = grid.box()
+                    box_out = grid.box()
+                    box_in.template_curve_mapping(self.blend_in_data_global, "mapping")
+                    box_out.template_curve_mapping(self.blend_out_data_global, "mapping")
+                    #box_in.enabled = opts.blend_in_frames > 0
+                    #box_out.enabled = opts.blend_out_frames > 0
+                    column.prop(opts, "blend_strength", text="Overall Strength", slider=True)
+
+        else:
+            opts = self.chr_cache.action_options
+            if utils.ui_fake_drop_down(row_3, "", opts, "show_motion_options", align="RIGHT"):
+                col_1.label(text="Action Mode:")
+                if self.param == "BLEND":
+                    col_2.prop(opts, "blend_mode", text="")
+                else:
+                    col_2.prop(opts, "action_mode", text="")
+                col_3.prop(opts, "relative_root")
+                col_1.label(text="Frame Mode:")
+                col_2.prop(opts, "frame_mode", text="")
+                #col_3.prop(opts, "current_root")
+                col_3.label(text="")
+                if self.param == "BLEND":
+                    col_1.separator()
+                    col_2.separator()
+                    col_3.separator()
+                    source_range = get_motion_set_frame_range(opts.source_motion)
+                    target_range = get_motion_set_frame_range(opts.target_motion)
+                    col_1.label(text="Source Motion:")
+                    col_2.prop(opts, "source_motion", text="")
+                    col_3.label(text=f"Frames: {source_range[0]} - {source_range[1]}")
+                    col_1.label(text="Destination Motion:")
+                    col_2.prop(opts, "target_motion", text="")
+                    col_3.label(text=f"Frames: {target_range[0]} - {target_range[1]}")
+
+                    if opts.frame_mode == "START":
+                        start = 1
+                        end = source_range[1] - source_range[0] + start
+                    elif opts.frame_mode == "CURRENT":
+                        start = bpy.context.scene.frame_current
+                        end = source_range[1] - source_range[0] + start
+                    elif opts.frame_mode == "MATCH":
+                        start = source_range[0]
+                        end = source_range[1]
+                    tot_start = min(start, target_range[0])
+                    tot_end = max(end, target_range[1])
+
+                    if opts.blend_mode == "NEW":
+                        col_1.label(text="As New Motion")
+                        col_2.prop(opts, "motion_prefix", text="")
+                        col_3.label(text=f"Blend Frames: {start} - {end}")
+                        col_1.label(text="")
+                        col_2.prop(opts, "motion_id", text="")
+                        col_3.label(text=f"Total Frames: {tot_start} - {tot_end}")
+                        name = self.get_new_motion_name()
+                        col_1.label(text="Motion Name:")
+                        col_2.label(text=name)
+                        col_3.label(text="")
+                    else:
+                        col_1.label(text="")
+                        col_2.label(text=f"Blend Frames: {start} - {end}")
+
+            row = column.row()
+            row.prop(opts, "use_blend")
+            if opts.use_blend:
+                if utils.ui_fake_drop_down(row, "", opts, "show_blend_options", align="RIGHT"):
+                    grid = column.grid_flow(row_major=True, columns=2)
+                    grid.prop(opts, "blend_in_frames")
+                    grid.prop(opts, "blend_out_frames")
+                    box_in = grid.box()
+                    box_out = grid.box()
+                    box_in.template_curve_mapping(self.blend_in_data_chr, "mapping")
+                    box_out.template_curve_mapping(self.blend_out_data_chr, "mapping")
+                    #box_in.enabled = opts.blend_in_frames > 0
+                    #box_out.enabled = opts.blend_out_frames > 0
+                    column.prop(opts, "blend_strength", slider=True)
+
+        if self.chr_cache:
+            opts = self.chr_cache.action_options
+
+            # bone masking
+            row = column.row()
+            row.prop(opts, "use_bone_masking")
+            if opts.use_bone_masking:
+                if utils.ui_fake_drop_down(row, "", opts, "show_bone_mask_options", align="RIGHT"):
+                    b_prop = self.get_mix_bone_prop(self.chr_cache)
+                    row = column.row()
+                    c1, c2, c3 = utils.ui_three_column_layout(row, (12,1,12))
+                    c1.template_list("CCIC_AVAILABLEMIX_UL_List", "available_bones_list",
+                                        opts, "available_bones",
+                                        opts, "available_bones_index",
+                                        rows=5, maxrows=4)
+                    col = c2.column()
+                    #col.separator(factor=4.0)
+                    col.operator("ccic.action_import_functions", text="", icon="TRIA_RIGHT_BAR").param = "ADD_ALL_BONES"
+                    col.operator("ccic.action_import_functions", text="", icon="TRIA_RIGHT").param = "ADD_BONE"
+                    col.separator(factor=2.0)
+                    col.operator("ccic.action_import_functions", text="", icon="TRIA_LEFT").param = "REMOVE_BONE"
+                    col.operator("ccic.action_import_functions", text="", icon="TRIA_LEFT_BAR").param = "REMOVE_ALL_BONES"
+                    #col.separator(factor=4.0)
+                    rows = 4 if b_prop else 5
+                    c3.template_list("CCIC_IMPORTMIX_UL_List", "import_bones_list",
+                                        opts, "import_bones",
+                                        opts, "import_bones_index",
+                                        rows=rows, maxrows=rows)
+                    if b_prop:
+                        c3.prop(b_prop, "weight", text="Blend Weight", slider=True)
+
+            # key masking
+            row = column.row()
+            row.prop(opts, "use_key_masking")
+            if opts.use_key_masking:
+                if utils.ui_fake_drop_down(row, "", opts, "show_key_mask_options", align="RIGHT"):
+                    k_prop = self.get_mix_key_prop(self.chr_cache)
+                    row = column.row()
+                    c1, c2, c3 = utils.ui_three_column_layout(row, (12,1,12))
+                    c1.template_list("CCIC_AVAILABLEMIX_UL_List", "available_keys_list",
+                                        opts, "available_keys",
+                                        opts, "available_keys_index",
+                                        rows=5, maxrows=4)
+                    col = c2.column()
+                    col.operator("ccic.action_import_functions", text="", icon="TRIA_RIGHT_BAR").param = "ADD_ALL_KEYS"
+                    col.operator("ccic.action_import_functions", text="", icon="TRIA_RIGHT").param = "ADD_KEY"
+                    col.separator(factor=2.0)
+                    col.operator("ccic.action_import_functions", text="", icon="TRIA_LEFT").param = "REMOVE_KEY"
+                    col.operator("ccic.action_import_functions", text="", icon="TRIA_LEFT_BAR").param = "REMOVE_ALL_KEYS"
+                    col = row.column()
+                    rows = 4 if k_prop else 5
+                    c3.template_list("CCIC_IMPORTMIX_UL_List", "import_keys_list",
+                                        opts, "import_keys",
+                                        opts, "import_keys_index",
+                                        rows=rows, maxrows=rows)
+                    if k_prop:
+                        c3.prop(k_prop, "weight", text="Blend Weight", slider=True)
+
+            # presets
+            if opts.use_bone_masking or opts.use_key_masking:
+                row = layout.row()
+                self.preset_group(row, opts)
+
+    def get_mix_bone_prop(self, chr_cache):
+        bone_item = None
+        if chr_cache:
+            props = chr_cache.action_options
+            index = props.import_bones_index
+            try:
+                bone_item = props.import_bones[index]
+            except: ...
+        return bone_item
+
+    def get_mix_key_prop(self, chr_cache):
+        key_item = None
+        if chr_cache:
+            props = chr_cache.action_options
+            index = props.import_keys_index
+            try:
+                key_item = props.import_keys[index]
+            except: ...
+        return key_item
+
+    def is_valid_bone(self, bone: bpy.types.Bone):
+        if self.chr_cache.rigified:
+            # also ignore bones with drivers?
+            if (bone.name.startswith("facerig")):
+                return False
+            if (bone.name.startswith("CTRL_") and
+                (bone.name.endswith("_line") or bone.name.endswith("_box"))):
+                return False
+            if ("VIS" in bone.name):
+                    return False
+            collection: bpy.types.BoneCollection
+            for collection in bone.collections:
+                if ("Hidden" in collection.name or
+                    "ORG" in collection.name or
+                    "MCH" in collection.name or
+                    "DEF" in collection.name):
+                    return False
+        return True
+
+    def build_available(self):
+        if self.chr_cache:
+            props = self.chr_cache.action_options
+            props.available_bones.clear()
+            props.available_keys.clear()
+
+            arm = self.chr_cache.get_armature()
+            if arm:
+                for bone in arm.data.bones:
+                    if self.is_valid_bone(bone):
+                        bone_item = props.available_bones.add()
+                        bone_item.name = bone.name
+
+                keys = []
+                for obj in arm.children:
+                    if utils.object_exists_is_mesh(obj) and utils.object_has_shape_keys(obj):
+                        for i, key in enumerate(obj.data.shape_keys.key_blocks):
+                            if i > 0 and key.name not in keys:
+                                keys.append(key.name)
+                keys.sort()
+                for key in keys:
+                    key_item = props.available_keys.add()
+                    key_item.name = key
+
+    def get_new_motion_name(self):
+        name = ""
+        if self.chr_cache:
+            opts = self.chr_cache.action_options
+            actor_rig = self.chr_cache.get_armature()
+            target_motion = opts.target_motion
+            set_id, set_generation, action_type_id, key_object = get_motion_set_ids(target_motion)
+            rig_id = get_rig_id(actor_rig)
+            name = get_new_motion_set_action_name(action_type_id, set_id, opts.motion_prefix, rig_id, opts.motion_id)
+        return name
+
+    def execute(self, context):
+        props = vars.props()
+        prefs = vars.prefs()
+
+        if self.chr_cache and self.param == "BLEND":
+            opts = self.chr_cache.action_options
+            source_motion = opts.source_motion
+            target_motion = opts.target_motion
+            actor_rig = self.chr_cache.get_armature()
+            current_motion = utils.safe_get_action(actor_rig)
+            #
+            blend_mode = self.chr_cache.action_options.blend_mode
+            frame_mode = self.chr_cache.action_options.frame_mode
+            source_motion = duplicate_motion_set(source_motion)
+            if blend_mode == "NEW":
+                set_id, set_generation, action_type_id, key_object = get_motion_set_ids(source_motion)
+                rig_id = get_rig_id(actor_rig)
+                rename_motion_set(action_type_id, set_id, opts.motion_prefix, rig_id, opts.motion_id)
+            if current_motion != target_motion:
+                load_motion_set(actor_rig, target_motion)
+            # store target motion
+            action_store_id = props.store_actions(actor_rig)
+            # load the source motion
+            load_motion_set(actor_rig, source_motion)
+            # shift motion frames based on frame mode option
+            if opts.frame_mode == "START":
+                shift_motion_frames(source_motion, 1)
+            elif opts.frame_mode == "CURRENT":
+                shift_motion_frames(source_motion, bpy.context.scene.frame_current)
+            finalize_motion_import(self.chr_cache, actor_rig, source_motion,
+                                   action_store_id, blend_mode, chr_override=True)
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        props = vars.props()
+        prefs = vars.prefs()
+        utils.set_mode("OBJECT")
+        self.chr_cache = props.get_context_character_cache(context, strict=True)
+        self.blend_in_data_global = ui.get_fcurve_data(None, "motion_blend_in", shape="IN")
+        self.blend_out_data_global = ui.get_fcurve_data(None, "motion_blend_out", shape="OUT")
+        self.blend_in_data_chr = ui.get_fcurve_data(self.chr_cache, "motion_blend_in", shape="IN")
+        self.blend_out_data_chr = ui.get_fcurve_data(self.chr_cache, "motion_blend_out", shape="OUT")
+        if self.chr_cache:
+            actor_rig = self.chr_cache.get_armature()
+            opts = self.chr_cache.action_options
+            opts.blend_mode = opts.action_mode
+            opts.source_motion = utils.collection_at_index(props.action_set_list_index, bpy.data.actions)
+            opts.target_motion = utils.safe_get_action(actor_rig)
+        self.build_available()
+
+        if self.param == "BLEND":
+            if self.chr_cache:
+                return context.window_manager.invoke_props_dialog(self, width=600)
+        else:
+            return context.window_manager.invoke_props_dialog(self, width=600)
+
+        return {'FINISHED'}
+
+    @classmethod
+    def description(cls, context, properties):
+        if properties.param == "BLEND":
+            return "Blend motions using options including: blending, overwriting, frame shifting, bone and shape key masking"
+        else:
+            return "Options for importing motions, including: blending, overwriting, frame shifting, bone and shape key masking"
+        return ""
+# endregion
 

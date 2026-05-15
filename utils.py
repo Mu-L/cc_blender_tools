@@ -22,6 +22,7 @@ import difflib
 import random
 import re, json
 import traceback
+import math
 from mathutils import Vector, Quaternion, Matrix, Euler, Color
 from hashlib import md5
 import bpy
@@ -264,7 +265,7 @@ def unique_object_name(name, obj=None, capitalize=False, start_index=1, suffix="
 
 def un_suffix_name(name):
     """Removes any combination of numerical suffixes from the end of a string"""
-    base_name = re.sub("([._+|/\,]\d+)*$", "", name)
+    base_name = re.sub("([._+|/\\,]\\d+)*$", "", name)
     return base_name
 
 
@@ -372,6 +373,21 @@ def object_exists_is_mesh(obj):
         return False
 
 
+def object_exists_has_shape_keys(obj):
+    """Test if Object: obj still exists as an object in the scene, and is a mesh."""
+    if obj is None:
+        return False
+    try:
+        name = obj.name
+        return (len(obj.users_scene) > 0 and
+                obj.type == "MESH" and
+                obj.data.shape_keys is not None and
+                obj.data.shape_keys.key_blocks is not None and
+                len(obj.data.shape_keys.key_blocks) > 1)
+    except:
+        return False
+
+
 def object_exists_is_armature(obj) -> bool:
     """Test if Object: obj still exists as an object in the scene, and is an armature."""
     if obj is None:
@@ -475,9 +491,11 @@ def get_selected_mesh():
     return None
 
 
-def get_selected_meshes(context = None):
+def get_selected_meshes(context=None, selection=None):
     """Gets selected meshes and includes any current context mesh"""
-    objects = [ obj for obj in bpy.context.selected_objects if object_exists_is_mesh(obj) ]
+    if not selection:
+        selection = bpy.context.selected_objects
+    objects = [ obj for obj in selection if object_exists_is_mesh(obj) ]
     if context and context.object:
         if object_exists_is_mesh(context.object):
             if context.object not in objects:
@@ -615,6 +633,37 @@ def saturate(x):
 
 def remap(from_min, from_max, to_min, to_max, x):
     return to_min + ((x - from_min) * (to_max - to_min) / (from_max - from_min))
+
+
+
+def slerp(q0: Quaternion, q1: Quaternion, t: float, dot_threshold=0.9995):
+
+    omt = max(0, 1.0 - t)
+
+    q0.normalize()
+    q1.normalize()
+
+    dot = q0.dot(q1)
+    if dot < 0.0:
+        q1 = -q1
+        dot = -dot
+
+    dot = max(min(dot, 1.0), -1.0)
+
+    if dot > dot_threshold:
+        # LERP then normalize
+        out = (q0 * (omt)) + (q1 * t)
+        return out.normalized()
+
+    theta_0 = math.acos(dot) # angle between input quaternions
+    sin_theta_0 = math.sin(theta_0)
+    theta = theta_0 * t
+    sin_theta = math.sin(theta)
+    s0 = math.cos(theta) - dot * sin_theta / sin_theta_0
+    s1 = sin_theta / sin_theta_0
+    out = (q0 * s0) + (q1 * s1)
+
+    return out.normalized()
 
 
 def lerp(v0, v1, t, clamp=True):
@@ -1820,16 +1869,23 @@ def move_object_to_scene_collections(obj, collections, exclude_rbw = True):
 def store_mode_selection_state():
     mode = get_mode()
     active = get_active_object()
-    selection = bpy.context.selected_objects.copy()
-    return [mode, active, selection,
+    selection = [ o.name for o in bpy.context.selected_objects ]
+    return [mode, active.name if active else "", selection,
             (bpy.context.scene.frame_current, bpy.context.scene.frame_start, bpy.context.scene.frame_end)]
 
 
 def restore_mode_selection_state(store, include_frames=True):
     try:
         set_mode("OBJECT")
-        try_select_objects(store[2], True)
-        set_active_object(store[1])
+        objects = []
+        for obj_name in store[2]:
+            if obj_name in bpy.data.objects:
+                objects.append(bpy.data.objects[obj_name])
+        active = None
+        if store[1] in bpy.data.objects:
+            active = bpy.data.objects[store[1]]
+        try_select_objects(objects, clear_selection=True)
+        set_active_object(active)
         set_mode(store[0])
         if include_frames:
             bpy.context.scene.frame_current = store[3][0]
@@ -2085,10 +2141,12 @@ def make_action_slot(action, slot_type, slot_name):
     return None
 
 
-def get_action_slot(action, slot_type):
+def get_action_slot(action, slot_type=None, slot_id=None):
     if action and B440():
         for slot in action.slots:
-            if slot.target_id_type == slot_type:
+            if slot_type and slot.target_id_type == slot_type:
+                return slot
+            if slot_id and slot.identifier == slot_id:
                 return slot
     return None
 
@@ -2143,7 +2201,7 @@ def set_action_slot(obj, action, slot=None):
             return True
         else:
             slot_type = get_slot_type_for(obj)
-            slot = get_action_slot(action, slot_type)
+            slot = get_action_slot(action, slot_type=slot_type)
             if slot:
                 try:
                     obj.animation_data.action_slot = slot
@@ -2277,7 +2335,7 @@ def get_action_channelbag(action: bpy.types.Action, slot=None, slot_type=None):
         else:
             strip = layer.strips[0]
         if slot_type and not slot:
-            slot = get_action_slot(action, slot_type)
+            slot = get_action_slot(action, slot_type=slot_type)
         if slot:
             channelbag = strip.channelbag(slot, ensure=True)
             if channelbag:
@@ -2727,7 +2785,46 @@ def reset_shape_keys(objects, exclude=None):
                     key.value = 0.0
 
 
-INVALID_EXPORT_CHARACTERS = "`¬!\"£$%^&*()+-=[]{}:@~;'#<>?,./\| "
+def ui_two_column_layout(layout: bpy.types.UILayout, widths: tuple, align=False):
+    factor = widths[0] / (widths[0] + widths[1])
+    split = layout.split(factor=factor, align=align)
+    col_1 = split.column(align=align)
+    col_2 = split.column(align=align)
+    return col_1, col_2
+
+
+def ui_three_column_layout(layout: bpy.types.UILayout, widths: tuple, align=False):
+    factor_1 = widths[0] / (widths[0] + widths[1] + widths[2])
+    factor_2 = widths[1] / (widths[1] + widths[2])
+    split_1 = layout.split(factor=factor_1, align=align)
+    col_1 = split_1.column(align=align)
+    col_2 = split_1.column(align=align)
+    split_2 = col_2.split(factor=factor_2, align=align)
+    col_3 = split_2.column(align=align)
+    col_4 = split_2.column(align=align)
+    return col_1, col_3, col_4
+
+
+def ui_fake_drop_down(layout: bpy.types.UILayout, label: str,
+                      props: any, prop_name: str,
+                      icon = "TRIA_DOWN", icon_closed = "TRIA_RIGHT",
+                      align="LEFT"):
+    row = layout.row()
+    row.alignment="LEFT"
+    prop_bool_value = getattr(props, prop_name)
+    if prop_bool_value:
+        row.prop(props, prop_name, icon=icon, text=label, emboss=False)
+    else:
+        row.prop(props, prop_name, icon=icon_closed, text=label, emboss=False)
+    if icon != "TRIA_DOWN":
+        if prop_bool_value:
+            row.prop(props, prop_name, icon="TRIA_DOWN", icon_only=True, emboss=False)
+        else:
+            row.prop(props, prop_name, icon="TRIA_RIGHT", icon_only=True, emboss=False)
+    return prop_bool_value
+
+
+INVALID_EXPORT_CHARACTERS = "`¬!\"£$%^&*()+-=[]{}:@~;'#<>?,./\\| "
 DIGITS = "0123456789"
 
 

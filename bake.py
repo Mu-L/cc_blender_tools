@@ -19,7 +19,7 @@ import os
 from mathutils import Vector
 from . import normal, colorspace, imageutils, wrinkle, nodeutils, materials, utils, params, vars
 from .exporter import get_export_objects
-from . utils import B500
+from . utils import B500, B430
 
 BAKE_SAMPLES = 4
 BAKE_INDEX = 1001
@@ -54,39 +54,7 @@ def prep_bake(context, mat: bpy.types.Material=None, samples=BAKE_SAMPLES, image
     if not context:
         context = bpy.context
 
-    # cycles settings
-    bake_state["samples"] = context.scene.cycles.samples
-    if utils.B500():
-        bake_state["use_bake_multires"] = context.scene.render.bake.use_multires
-    else:
-        bake_state["use_bake_multires"] = context.scene.render.use_bake_multires
-    # Blender 3.0
-    if utils.B300():
-        bake_state["preview_samples"] = context.scene.cycles.preview_samples
-        bake_state["use_adaptive_sampling"] = context.scene.cycles.use_adaptive_sampling
-        bake_state["use_preview_adaptive_sampling"] = context.scene.cycles.use_preview_adaptive_sampling
-        bake_state["use_denoising"] = context.scene.cycles.use_denoising
-        bake_state["use_preview_denoising"] = context.scene.cycles.use_preview_denoising
-        bake_state["use_auto_tile"] =  context.scene.cycles.use_auto_tile
-    # render settings
-    bake_state["file_format"] = context.scene.render.image_settings.file_format
-    bake_state["color_depth"] = context.scene.render.image_settings.color_depth
-    bake_state["color_mode"] = context.scene.render.image_settings.color_mode
-    bake_state["use_selected_to_active"] = context.scene.render.bake.use_selected_to_active
-    bake_state["use_pass_direct"] = context.scene.render.bake.use_pass_direct
-    bake_state["use_pass_indirect"] = context.scene.render.bake.use_pass_indirect
-    bake_state["margin"] = context.scene.render.bake.margin
-    bake_state["use_clear"] = context.scene.render.bake.use_clear
-    bake_state["image_format"] = context.scene.render.image_settings.file_format
-    # Blender 2.92
-    if utils.B292():
-        bake_state["target"] = context.scene.render.bake.target
-    # color management
-    bake_state["view_transform"] = context.scene.view_settings.view_transform
-    bake_state["look"] = context.scene.view_settings.look
-    bake_state["gamma"] = context.scene.view_settings.gamma
-    bake_state["exposure"] = context.scene.view_settings.exposure
-    bake_state["colorspace"] = context.scene.sequencer_colorspace_settings.name
+    bake_state["render_settings"] = store_render_settings(context)
 
     context.scene.cycles.samples = samples
     context.scene.render.image_settings.file_format = image_format
@@ -119,28 +87,36 @@ def prep_bake(context, mat: bpy.types.Material=None, samples=BAKE_SAMPLES, image
     if utils.B292():
         context.scene.render.bake.target = 'IMAGE_TEXTURES'
 
+    # TODO Which blender versions for these?
+    context.scene.render.resolution_percentage = 100
+    if B500():
+        context.scene.render.image_settings.media_type = "IMAGE"
+        context.scene.display_settings.emulation = "AUTO"
+    context.scene.render.image_settings.compression = 15
+    context.scene.render.use_overwrite = True
+    context.scene.render.use_placeholder = False
+    context.scene.render.use_render_cache = False
+    context.scene.render.use_file_extension = True
+    if B430():
+        context.scene.view_settings.use_white_balance = False
+    # color management override
+    context.scene.render.image_settings.color_management = "FOLLOW_SCENE"
+    # post processing
+    context.scene.render.use_compositing = False
+    context.scene.render.use_sequencer = False
+    context.scene.render.dither_intensity = 0.0
+
     # go into wireframe mode (so Blender doesn't update or recompile the material shaders while
     # we manipulate them for baking, and also so Blender doesn't fire up the cycles viewport...):
     shading: bpy.types.View3DShading = utils.get_view_3d_shading(context)
     if shading:
-        bake_state["shading"] = shading.type
         shading.type = 'WIREFRAME'
-    else:
-        bake_state["shading"] = 'MATERIAL'
-        shading.type = 'WIREFRAME'
+
     # set cycles rendering mode for baking
-    bake_state["engine"] = context.scene.render.engine
     context.scene.render.engine = 'CYCLES'
-    bake_state["cycles_bake_type"] = context.scene.cycles.bake_type
-    if utils.B500():
-        bake_state["render_bake_type"] = context.scene.render.bake.type
-    else:
-        bake_state["render_bake_type"] = context.scene.render.bake_type
     context.scene.cycles.bake_type = "COMBINED"
 
-
     if make_surface:
-
         # deselect everything
         bpy.ops.object.select_all(action='DESELECT')
         # create the baking plane, a single quad baking surface for an even sampling across the entire texture
@@ -158,6 +134,117 @@ def prep_bake(context, mat: bpy.types.Material=None, samples=BAKE_SAMPLES, image
                         mesh.uv_layers.new(name=uv_name)
 
     return bake_state
+
+
+def get_context_setting(context, settings, path):
+    try:
+        settings[path] = eval(f"context.{path}", None, locals())
+    except: ...
+    #except Exception as e:
+    #    utils.log_warn(f"context setting: {path} not found!")
+
+
+def set_context_setting(context, settings, path):
+    try:
+        exec(f"context.{path} = settings[path]", None, locals())
+    except: ...
+    #except Exception as e:
+    #    utils.log_warn(f"context setting: {path} not found!")
+
+
+CONTEXT_SETTINGS = [
+    # cycles settings
+    "scene.cycles.samples",
+    "scene.render.bake.use_multires", # B500
+    "scene.render.use_bake_multires", # < B500
+    "scene.cycles.preview_samples", # B300
+    "scene.cycles.use_adaptive_sampling", # B300
+    "scene.cycles.use_preview_adaptive_sampling", # B300
+    "scene.cycles.use_denoising", # B300
+    "scene.cycles.use_preview_denoising", # B300
+    "scene.cycles.use_auto_tile", # B300
+    # render settings
+    "scene.render.resolution_x",
+    "scene.render.resolution_y",
+    "scene.render.resolution_percentage",
+    "scene.render.image_settings.media_type", ###!!!
+    "scene.render.image_settings.file_format",
+    "scene.render.image_settings.color_depth",
+    "scene.render.image_settings.color_mode",
+    "scene.render.image_settings.compression", ###!!!
+    "scene.render.bake.use_selected_to_active",
+    "scene.render.bake.use_pass_direct",
+    "scene.render.bake.use_pass_indirect",
+    "scene.render.bake.margin",
+    "scene.render.bake.use_clear",
+    "scene.render.use_overwrite", ###!!!
+    "scene.render.use_placeholder", ###!!!
+    "scene.render.use_render_cache", ###!!!
+    "scene.render.use_file_extension", ###!!!
+    "scene.render.bake.target", #B292
+    "scene.render.filepath",
+    # display settings
+    "scene.display_settings.display_device",
+    # color management
+    "scene.view_settings.use_curve_mapping",
+    "scene.view_settings.view_transform",
+    "scene.view_settings.look",
+    "scene.view_settings.gamma",
+    "scene.view_settings.exposure",
+    "scene.sequencer_colorspace_settings.name",
+    "scene.display_settings.emulation", # B???
+    "scene.view_settings.use_white_balance", # B???
+    "scene.view_settings.white_balance_temperature",
+    "scene.view_settings.white_balance_tint",
+    # color management override B???
+    "scene.render.image_settings.color_management",
+    "scene.render.image_settings.display_settings.display_device",
+    "scene.render.image_settings.view_settings.view_transform",
+    "scene.render.image_settings.view_settings.look",
+    "scene.render.image_settings.view_settings.exposure",
+    "scene.render.image_settings.view_settings.gamma",
+    "scene.render.image_settings.view_settings.use_curve_mapping",
+    "scene.render.image_settings.view_settings.use_white_balance",
+    # renderer
+    "scene.render.engine",
+    "scene.cycles.bake_type",
+    "scene.render.bake.type", #B500
+    "scene.render.bake_type", # < B500
+    # post processing
+    "scene.render.use_compositing", ###!!!
+    "scene.render.use_sequencer", ###!!!
+    "scene.render.dither_intensity", ###!!!
+]
+
+
+def store_render_settings(context):
+    settings = {}
+    if not context:
+        context = bpy.context
+
+    for path in CONTEXT_SETTINGS:
+        get_context_setting(context, settings, path)
+
+    # current viewport shading
+    shading: bpy.types.View3DShading = utils.get_view_3d_shading(context)
+    settings["shading.type"] = shading.type if shading else 'MATERIAL'
+
+    return settings
+
+
+def restore_render_settings(context, settings):
+    if not context:
+        context = bpy.context
+
+    for path in CONTEXT_SETTINGS:
+        set_context_setting(context, settings, path)
+
+    # current viewport shading
+    shading: bpy.types.View3DShading = utils.get_view_3d_shading(context)
+    if shading:
+        shading.type = settings["shading.type"]
+
+    return settings
 
 
 def set_bake_material(bake_state, mat):
@@ -179,52 +266,7 @@ def post_bake(context, state):
     if not context:
         context = bpy.context
 
-    # cycles settings
-    context.scene.cycles.samples = state["samples"]
-    # Blender 3.0
-    if utils.B300():
-        context.scene.cycles.preview_samples = state["preview_samples"]
-        context.scene.cycles.use_adaptive_sampling = state["use_adaptive_sampling"]
-        context.scene.cycles.use_preview_adaptive_sampling = state["use_preview_adaptive_sampling"]
-        context.scene.cycles.use_denoising = state["use_denoising"]
-        context.scene.cycles.use_preview_denoising = state["use_preview_denoising"]
-        context.scene.cycles.use_auto_tile = state["use_auto_tile"]
-    # render settings
-    context.scene.render.image_settings.file_format = state["file_format"]
-    context.scene.render.image_settings.color_depth = state["color_depth"]
-    context.scene.render.image_settings.color_mode = state["color_mode"]
-    if utils.B500():
-        context.scene.render.bake.use_multires = state["use_bake_multires"]
-    else:
-        context.scene.render.use_bake_multires = state["use_bake_multires"]
-    context.scene.render.bake.use_selected_to_active = state["use_selected_to_active"]
-    context.scene.render.bake.use_pass_direct = state["use_pass_direct"]
-    context.scene.render.bake.use_pass_indirect = state["use_pass_indirect"]
-    context.scene.render.bake.margin = state["margin"]
-    context.scene.render.bake.use_clear = state["use_clear"]
-    context.scene.render.image_settings.file_format = state["image_format"]
-    # Blender 2.92
-    if utils.B292():
-        context.scene.render.bake.target = state["target"]
-    # color management
-    context.scene.view_settings.view_transform = state["view_transform"]
-    context.scene.view_settings.look = state["look"]
-    context.scene.view_settings.gamma = state["gamma"]
-    context.scene.view_settings.exposure = state["exposure"]
-    context.scene.sequencer_colorspace_settings.name = state["colorspace"]
-    # render engine
-    context.scene.render.engine = state["engine"]
-    # viewport shading
-    shading = utils.get_view_3d_shading(context)
-    if shading:
-        shading.type = state["shading"]
-
-    # bake type
-    context.scene.cycles.bake_type = state["cycles_bake_type"]
-    if utils.B500():
-        context.scene.render.bake.type = state["render_bake_type"]
-    else:
-        context.scene.render.bake_type = state["render_bake_type"]
+    restore_render_settings(context, state["render_settings"])
 
     # remove the bake surface
     if "bake_surface" in state:
@@ -632,8 +674,12 @@ def get_compositor_tree(context) -> bpy.types.NodeGroup:
         return context.scene.node_tree
 
 
-def compositing_setup(context):
+def compositing_setup(context: bpy.types.Context):
+
+    settings = store_render_settings(context)
+
     if B500():
+        # node tree
         old_tree = context.scene.compositing_node_group
         tree = bpy.data.node_groups.new("Compositor Bake", "CompositorNodeTree")
         context.scene.compositing_node_group = tree
@@ -650,10 +696,29 @@ def compositing_setup(context):
         for node in nodes:
             store[node] = node.mute
             node.mute = True
-    return nodes, links, store, tree
+
+    # override context render settings
+    if B500():
+        context.scene.render.image_settings.media_type = "IMAGE"
+        context.scene.display_settings.emulation = "AUTO"
+    context.scene.render.image_settings.compression = 15
+    context.scene.render.use_overwrite = True
+    context.scene.render.use_placeholder = False
+    context.scene.render.use_render_cache = False
+    context.scene.render.use_file_extension = True
+    if B430():
+        context.scene.view_settings.use_white_balance = False
+    # color management override
+    context.scene.render.image_settings.color_management = "OVERRIDE"
+    # post processing
+    context.scene.render.use_compositing = True
+    context.scene.render.use_sequencer = False
+    context.scene.render.dither_intensity = 0.0
+
+    return nodes, links, store, tree, settings
 
 
-def compositing_cleanup(context, store):
+def compositing_cleanup(context, store, settings):
     if B500():
         context.scene.compositing_node_group = store[1]
         bpy.data.node_groups.remove(store[0])
@@ -668,6 +733,7 @@ def compositing_cleanup(context, store):
                 clean_up.append(node)
         for node in clean_up:
             nodes.remove(node)
+    restore_render_settings(context, settings)
 
 
 def compositor_pack_RGBA(mat, channel_id, pack_mode, bake_dir,
@@ -706,7 +772,7 @@ def compositor_pack_RGBA(mat, channel_id, pack_mode, bake_dir,
         utils.log_info(f"Resuing existing texture pack {image_name}, not baking.")
         return imageutils.load_image(image_path, color_space)
 
-    nodes, links, store, node_tree = compositing_setup(context)
+    nodes, links, store, node_tree, settings = compositing_setup(context)
 
     CNCC_node = nodeutils.make_shader_node(nodes, "CompositorNodeCombineColor")
     CNCGO_node = None
@@ -831,30 +897,32 @@ def compositor_pack_RGBA(mat, channel_id, pack_mode, bake_dir,
                 nodeutils.link_nodes(links, CNI_A_node, "Image", CNCC_node, "Alpha")
                 nodeutils.link_nodes(links, CNI_A_node, "Image", CNCGO_node, "Alpha")
 
-    X = context.scene.render.resolution_x
-    Y = context.scene.render.resolution_y
-    FP = context.scene.render.filepath
-    FF = context.scene.render.image_settings.file_format
-    CD = context.scene.render.image_settings.color_depth
-    CM = context.scene.render.image_settings.color_mode
-    VT = context.scene.view_settings.view_transform
-    LK = context.scene.view_settings.look
-    GA = context.scene.view_settings.gamma
-    EX = context.scene.view_settings.exposure
     context.scene.render.resolution_x = width
     context.scene.render.resolution_y = height
+    context.scene.render.resolution_percentage = 100
     context.scene.render.image_settings.file_format = 'OPEN_EXR'
     context.scene.render.image_settings.color_depth = color_depth
     context.scene.render.image_settings.color_mode = 'RGBA'
     context.scene.render.image_settings.exr_codec = 'ZIP'
-    context.scene.render.image_settings.color_management = 'OVERRIDE'
     context.scene.render.image_settings.linear_colorspace_settings.name = color_space
-
     context.scene.render.filepath = image_path
+    context.scene.render.image_settings.color_management = 'OVERRIDE'
+    context.scene.render.image_settings.display_settings.display_device = "sRGB"
+    context.scene.render.image_settings.view_settings.view_transform = "Standard"
+    context.scene.render.image_settings.view_settings.look = "None"
+    context.scene.render.image_settings.view_settings.gamma = 1
+    context.scene.render.image_settings.view_settings.exposure = 0
+    context.scene.render.image_settings.view_settings.use_curve_mapping = False
+    if B430():
+        context.scene.render.image_settings.view_settings.use_white_balance = False
+    context.scene.display_settings.display_device = "sRGB"
     context.scene.view_settings.view_transform = 'Standard'
     context.scene.view_settings.look = 'None'
     context.scene.view_settings.gamma = 1
     context.scene.view_settings.exposure = 0
+    context.scene.view_settings.use_curve_mapping = False
+    if B430():
+        context.scene.view_settings.use_white_balance = False
 
     for node in nodes:
         node.select = False
@@ -863,18 +931,7 @@ def compositor_pack_RGBA(mat, channel_id, pack_mode, bake_dir,
 
     bpy.ops.render.render(write_still=True)
 
-    context.scene.render.resolution_x = X
-    context.scene.render.resolution_y = Y
-    context.scene.render.filepath = FP
-    context.scene.render.image_settings.file_format = FF
-    context.scene.render.image_settings.color_depth = CD
-    context.scene.render.image_settings.color_mode = CM
-    context.scene.view_settings.view_transform = VT
-    context.scene.view_settings.look = LK
-    context.scene.view_settings.gamma = GA
-    context.scene.view_settings.exposure = EX
-
-    compositing_cleanup(context, store)
+    compositing_cleanup(context, store, settings)
 
     image: bpy.types.Image = imageutils.load_image(image_path, color_space)
     return image

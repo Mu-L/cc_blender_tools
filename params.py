@@ -1449,7 +1449,7 @@ SHADER_MATRIX = [
             ["eye_iris_brightness", 1, "", "Custom/Iris Color Brightness"],
             ["eye_pupil_scale", 1, "", "Custom/Pupil Scale"],
             ["eye_ior", 1.4, "", "Custom/_IoR"],
-            ["eye_iris_radius", 0.24, "", "Custom/Iris UV Radius"],
+            ["eye_iris_radius", 0.16, "", "Custom/Iris UV Radius"],
             ["eye_iris_color", (1.0, 1.0, 1.0, 1.0), "func_color_bytes", "Custom/Iris Color"],
             ["eye_iris_inner_color", (1.0, 1.0, 1.0, 1.0), "func_color_bytes", "Custom/Iris Inner Color"],
             ["eye_iris_inner_scale", 0, "", "Custom/Iris Inner Scale"],

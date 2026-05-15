@@ -5858,27 +5858,28 @@ class CCICMotionBlend(bpy.types.Operator):
 
         if not chr_override:
             opts = props.action_options
-            col_1.label(text="Action Mode:")
-            col_2.prop(opts, "action_mode", text="")
-            col_3.prop(opts, "relative_root")
-            col_1.label(text="Frame Mode:")
-            col_2.prop(opts, "frame_mode", text="")
-            #col_3.prop(opts, "current_root")
-            col_3.label(text="")
-            row = column.row()
-            row.prop(opts, "use_blend")
-            if opts.use_blend:
-                if utils.ui_fake_drop_down(row, "", opts, "show_blend_options"):
-                    grid = column.grid_flow(row_major=True, columns=2)
-                    grid.prop(opts, "blend_in_frames", text="Blend In Frames")
-                    grid.prop(opts, "blend_out_frames", text="Blend Out Frames")
-                    box_in = grid.box()
-                    box_out = grid.box()
-                    box_in.template_curve_mapping(self.blend_in_data_global, "mapping")
-                    box_out.template_curve_mapping(self.blend_out_data_global, "mapping")
-                    #box_in.enabled = opts.blend_in_frames > 0
-                    #box_out.enabled = opts.blend_out_frames > 0
-                    column.prop(opts, "blend_strength", text="Overall Strength", slider=True)
+            if utils.ui_fake_drop_down(row_3, "", opts, "show_motion_options", align="RIGHT"):
+                col_1.label(text="Action Mode:")
+                col_2.prop(opts, "action_mode", text="")
+                col_3.prop(opts, "relative_root")
+                col_1.label(text="Frame Mode:")
+                col_2.prop(opts, "frame_mode", text="")
+                #col_3.prop(opts, "current_root")
+                col_3.label(text="")
+                row = column.row()
+                row.prop(opts, "use_blend")
+                if opts.use_blend:
+                    if utils.ui_fake_drop_down(row, "", opts, "show_blend_options"):
+                        grid = column.grid_flow(row_major=True, columns=2)
+                        grid.prop(opts, "blend_in_frames", text="Blend In Frames")
+                        grid.prop(opts, "blend_out_frames", text="Blend Out Frames")
+                        box_in = grid.box()
+                        box_out = grid.box()
+                        box_in.template_curve_mapping(self.blend_in_data_global, "mapping")
+                        box_out.template_curve_mapping(self.blend_out_data_global, "mapping")
+                        #box_in.enabled = opts.blend_in_frames > 0
+                        #box_out.enabled = opts.blend_out_frames > 0
+                        column.prop(opts, "blend_strength", text="Overall Strength", slider=True)
 
         else:
             opts = self.chr_cache.action_options

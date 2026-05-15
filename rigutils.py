@@ -4593,9 +4593,9 @@ def blend_key_curves(motion_channel, stored_channel,
         fcurve: bpy.types.FCurve = None
 
         # add frames from the motion curve
-        num_points = len(motion_key_curve.keyframe_points)
-        data = [0.0, 0.0] * num_points
         if motion_key_curve:
+            num_points = len(motion_key_curve.keyframe_points)
+            data = [0.0, 0.0] * num_points
             motion_key_curve.keyframe_points.foreach_get('co', data)
             for i in range(0, len(data), 2):
                 frame = data[i]

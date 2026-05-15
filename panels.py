@@ -2185,7 +2185,7 @@ class CC3RigifyPanel(bpy.types.Panel):
         props = vars.props()
         prefs = vars.prefs()
 
-        chr_cache, obj, mat, obj_cache, mat_cache = utils.get_context_character(context)
+        chr_cache, obj, mat, obj_cache, mat_cache = utils.get_context_character(context, strict=True)
         missing_materials = characters.has_missing_materials(chr_cache)
 
         layout = self.layout
@@ -2734,6 +2734,7 @@ def motion_set_ui(layout: bpy.types.UILayout, chr_cache, show_nla=False):
     col_1.operator("ccic.rigutils", icon="PLUS", text="New").param = "NEW_ACTION_SET"
     col_2.operator("ccic.rigutils", icon="MODIFIER_ON", text="Clean").param = "CLEAN_ACTIONS"
     col.operator("ccic.motion_blend", icon="MOD_ENVELOPE", text="Blend Motions").param="BLEND"
+    col.enabled = chr_cache is not None
 
 
     if show_nla:
@@ -2786,7 +2787,7 @@ class CCICAnimationToolsPanel(bpy.types.Panel):
         props = vars.props()
         prefs = vars.prefs()
 
-        chr_cache, obj, mat, obj_cache, mat_cache = utils.get_context_character(context)
+        chr_cache, obj, mat, obj_cache, mat_cache = utils.get_context_character(context, strict=True)
 
         layout = self.layout
         layout.use_property_split = False
@@ -2795,7 +2796,7 @@ class CCICAnimationToolsPanel(bpy.types.Panel):
         layout.label(text="Import Options:")
         row = layout.row(align=True)
         label = rigutils.CCICMotionBlend.label(context)
-        row.operator("ccic.motion_blend", icon="COLLAPSEMENU", text=label)
+        row.operator("ccic.motion_blend", icon="COLLAPSEMENU", text=label).param="NONE"
 
         column = layout.column()
 
@@ -2813,7 +2814,7 @@ class CCICNLASetsPanel(bpy.types.Panel):
         props = vars.props()
         prefs = vars.prefs()
 
-        chr_cache, obj, mat, obj_cache, mat_cache = utils.get_context_character(context)
+        chr_cache, obj, mat, obj_cache, mat_cache = utils.get_context_character(context, strict=True)
 
         layout = self.layout
         layout.use_property_split = False

@@ -3365,10 +3365,33 @@ def get_shape_key_group_name(key_name):
     return "Custom"
 
 
-def copy_fcurve_to_channel(from_fcurve: bpy.types.FCurve, to_channel) -> bpy.types.FCurve:
-    if utils.B500():
-        to_fcurve: bpy.types.FCurve = to_channel.fcurves.new_from_fcurve(from_fcurve)
+def copy_fcurve_to_channel(from_fcurve: bpy.types.FCurve, to_channel, no_frames=False) -> bpy.types.FCurve:
+    if from_fcurve and to_channel:
+        if utils.B500():
+            to_fcurve: bpy.types.FCurve = to_channel.fcurves.new_from_fcurve(from_fcurve)
+            if no_frames:
+                to_fcurve.keyframe_points.clear()
+        else:
+            data_path = from_fcurve.data_path
+            index = from_fcurve.array_index
+            to_fcurve: bpy.types.FCurve = to_channel.fcurves.new(data_path, index=index)
+            to_fcurve.auto_smoothing = from_fcurve.auto_smoothing
+            to_fcurve.color = from_fcurve.color
+            to_fcurve.color_mode = from_fcurve.color_mode
+            to_fcurve.extrapolation = from_fcurve.extrapolation
+            to_fcurve.mute = from_fcurve.mute
+            to_fcurve.lock = from_fcurve.lock
+            if not no_frames:
+                from_keyframes, num_points = get_fcurve_keyframe_data(from_fcurve)
+                apply_fcurve_keyframe_data(to_fcurve, from_keyframes)
+        to_fcurve.update()
+        return to_fcurve
     else:
+        return None
+
+
+def clone_fcurve_to_channel(from_fcurve: bpy.types.FCurve, to_channel) -> bpy.types.FCurve:
+    if from_fcurve and to_channel:
         data_path = from_fcurve.data_path
         index = from_fcurve.array_index
         to_fcurve: bpy.types.FCurve = to_channel.fcurves.new(data_path, index=index)
@@ -3378,10 +3401,9 @@ def copy_fcurve_to_channel(from_fcurve: bpy.types.FCurve, to_channel) -> bpy.typ
         to_fcurve.extrapolation = from_fcurve.extrapolation
         to_fcurve.mute = from_fcurve.mute
         to_fcurve.lock = from_fcurve.lock
-        from_keyframes, num_points = get_fcurve_keyframe_data(from_fcurve)
-        apply_fcurve_keyframe_data(to_fcurve, from_keyframes)
-    to_fcurve.update()
-    return to_fcurve
+        return to_fcurve
+    else:
+        return None
 
 
 def refactor_to_slotted_action(objects, actions):
@@ -3609,7 +3631,7 @@ def reset_fcurve_interpolation(fcurve: bpy.types.FCurve, interpolation="LINEAR")
     fcurve.update()
 
 
-def shift_actions(action, to_frame, frame_start = 1):
+def shift_action(action, to_frame, frame_start = 1):
     if to_frame == frame_start:
         return
     fcurves = utils.get_action_fcurves(action)
@@ -3766,9 +3788,40 @@ def target_slot(target):
     return None
 
 
+def fetch_target_channels(rig, rig_action=None):
+    rig_slot = target_slot(rig)
+    if not rig_action:
+        rig_action = utils.safe_get_action(rig)
+    rig_channelbag = utils.get_action_channelbag(rig_action, slot=rig_slot)
+    rig_channel = (rig_action, rig_slot, rig_channelbag)
+    key_channels = {}
+    for child in rig.children:
+        if utils.object_exists_has_shape_keys(child):
+            key_slot = target_slot(child.data.shape_keys)
+            key_action = utils.safe_get_action(child.data.shape_keys)
+            key_channelbag = utils.get_action_channelbag(key_action, slot=key_slot)
+            key_channels[child.name] = (key_action, key_slot, key_channelbag)
+    data_slot = target_slot(rig.data)
+    if rig.type == "LIGHT" or rig.type == "CAMERA":
+        data_action = utils.safe_get_action(rig.data)
+    else:
+        data_action = None
+    data_channelbag = utils.get_action_channelbag(data_action, slot=data_slot)
+    data_channel = (data_action, data_slot, data_channelbag)
+    return rig_channel, key_channels, data_channel
+
+
+def fetch_key_targets(rig):
+    key_targets = []
+    for child in rig.children:
+        if utils.object_exists_has_shape_keys(child):
+            key_targets.append(child.name)
+    return key_targets
+
+
 def mix_motion_set(rig, action_store_id, frame_start, frame_end):
     props = vars.props()
-    stored_main_action, stored_main_slot = props.fetch_stored_rig_action(action_store_id)
+    stored_main_action, stored_main_slot = props.fetch_stored_rig_channel(action_store_id)
     done = False
     objects = [rig]
     if utils.object_exists_is_armature(rig):
@@ -3828,6 +3881,15 @@ def mix_motion_set(rig, action_store_id, frame_start, frame_end):
     if done:
         props.restore_actions(action_store_id)
         #delete_motion_set(set_id)
+
+
+def shift_motion_frames(motion_action, to_frame):
+    if motion_action:
+        actions = get_motion_set_actions(motion_action)
+        action_range = get_actions_frame_range(actions)
+        utils.log_info(f"Moving motion frames: {motion_action.name} {action_range} to {to_frame}")
+        for action in actions:
+            shift_action(action, to_frame, action_range[0])
 
 
 def add_slot_channels_to_rig_motion(rig, obj, slot_type, action, reuse=False, clear=False):
@@ -3938,6 +4000,26 @@ def finalize_rlx_import(obj, actions, action_store_id, action_mode, frame_start=
 
     if actions:
         stored_actions = props.fetch_stored_actions(action_store_id)
+        motion_rig_channel, motion_key_channels, motion_data_channel = fetch_target_channels(obj, motion_action)
+        key_targets = []
+        stored_rig_channel = props.fetch_stored_rig_channel(action_store_id)
+        stored_key_channels = props.fetch_stored_key_channels(action_store_id)
+        stored_data_channel = props.fetch_stored_data_channel(action_store_id)
+        opts, blend_in_data, blend_out_data, use_masked = get_import_opts(None, None)
+        if opts.relative_root or opts.current_root or opts.use_blend or use_masked:
+            resample_blend(None, obj,
+                           motion_rig_channel, motion_key_channels, motion_data_channel,
+                           stored_rig_channel, stored_key_channels, stored_data_channel,
+                           key_targets,
+                           frame_start, frame_end,
+                           relative_root=opts.relative_root,
+                           current_root=opts.current_root,
+                           use_blend=opts.use_blend,
+                           blend_in_frames=opts.blend_in_frames,
+                           blend_out_frames=opts.blend_out_frames,
+                           blend_in_data=blend_in_data,
+                           blend_out_data=blend_out_data,
+                           overall_strength=opts.blend_strength)
 
         # now decide what to do with the actions based on the action_mode and frame_mode
 
@@ -3956,11 +4038,11 @@ def finalize_rlx_import(obj, actions, action_store_id, action_mode, frame_start=
             stored_actions = props.fetch_stored_actions(action_store_id)
             utils.delete_actions(stored_actions)
 
-        elif action_mode == "BLEND":
-            old_action = stored_actions[0]
-            utils.log_info(f"Action Mode BLEND: blending motion set: {motion_action.name} over existing motion: {old_action.name}")
-            mix_motion_set(obj, action_store_id, frame_start, frame_end)
-            utils.delete_actions(actions)
+        #elif action_mode == "BLEND":
+        #    old_action = stored_actions[0]
+        #    utils.log_info(f"Action Mode BLEND: blending motion set: {motion_action.name} over existing motion: {old_action.name}")
+        #    mix_motion_set(obj, action_store_id, frame_start, frame_end)
+        #    utils.delete_actions(actions)
 
         props.delete_action_store(action_store_id)
 
@@ -3986,7 +4068,6 @@ def get_import_opts(chr_cache, chr_override=False):
 
 def finalize_motion_import(chr_cache, rig, motion_rig_action, action_store_id, action_mode, frame_start=None, frame_end=None, chr_override=False):
     props = vars.props()
-
     motion_start_frame, motion_end_frame = get_motion_set_frame_range(motion_rig_action)
     if frame_start is None:
         frame_start = motion_start_frame
@@ -4007,15 +4088,22 @@ def finalize_motion_import(chr_cache, rig, motion_rig_action, action_store_id, a
     if motion_rig_action:
         set_id = get_motion_set_ids(motion_rig_action)[0]
         stored_actions = props.fetch_stored_actions(action_store_id)
-        motion_rig_slot = target_slot(rig)
-        stored_rig_action, stored_rig_slot = props.fetch_stored_rig_action(action_store_id)
+        motion_rig_channel, motion_key_channels, motion_data_channel = fetch_target_channels(rig, motion_rig_action)
+        key_targets = fetch_key_targets(rig)
+        stored_rig_channel = props.fetch_stored_rig_channel(action_store_id)
+        stored_key_channels = props.fetch_stored_key_channels(action_store_id)
+        stored_data_channel = props.fetch_stored_data_channel(action_store_id)
         #masked_bones: list = []
         #mask_bones(rig, motion_rig_action, motion_rig_slot, masked_bones)
         opts, blend_in_data, blend_out_data, use_masked = get_import_opts(chr_cache, chr_override)
-        if opts.relative_root or opts.use_blend or use_masked:
-            resample_blend(chr_cache, rig, motion_rig_action, motion_rig_slot,
-                           stored_rig_action, stored_rig_slot, frame_start, frame_end,
+        if opts.relative_root or opts.current_root or opts.use_blend or use_masked:
+            resample_blend(chr_cache, rig,
+                           motion_rig_channel, motion_key_channels, motion_data_channel,
+                           stored_rig_channel, stored_key_channels, stored_data_channel,
+                           key_targets,
+                           frame_start, frame_end,
                            relative_root=opts.relative_root,
+                           current_root=opts.current_root,
                            use_blend=opts.use_blend,
                            blend_in_frames=opts.blend_in_frames,
                            blend_out_frames=opts.blend_out_frames,
@@ -4041,12 +4129,12 @@ def finalize_motion_import(chr_cache, rig, motion_rig_action, action_store_id, a
             #replace_motion_set(set_id, old_set_id)
             delete_motion_set(old_set_id)
 
-        elif action_mode == "BLEND":
-            old_action = stored_actions[0]
-            old_set_id = get_motion_set_ids(old_action)[0]
-            utils.log_info(f"Action Mode BLEND: blending motion set: {motion_rig_action.name} / ({set_id}) over existing motion: {old_action.name} / ({old_set_id})")
-            mix_motion_set(rig, action_store_id, frame_start, frame_end)
-            delete_motion_set(set_id)
+        #elif action_mode == "BLEND":
+        #    old_action = stored_actions[0]
+        #    old_set_id = get_motion_set_ids(old_action)[0]
+        #    utils.log_info(f"Action Mode BLEND: blending motion set: {motion_rig_action.name} / ({set_id}) over existing motion: {old_action.name} / ({old_set_id})")
+        #    mix_motion_set(rig, action_store_id, frame_start, frame_end)
+        #    delete_motion_set(set_id)
 
         props.delete_action_store(action_store_id)
 
@@ -4055,8 +4143,8 @@ def resample_relative_root(rig, motion_action, motion_slot, stored_action, store
     root_bone_name = rig.pose.bones[0].name
     motion_channelbag = utils.get_action_channelbag(motion_action, slot=motion_slot)
     stored_channelbag = utils.get_action_channelbag(stored_action, slot=stored_slot)
-    stored_transform_set = fetch_action_bone_transform_set(stored_channelbag, root_bone_name)
-    motion_transform_set = fetch_action_bone_transform_set(motion_channelbag, root_bone_name)
+    stored_transform_set, stored_has_curves = fetch_action_bone_transform_set(stored_channelbag, root_bone_name)
+    motion_transform_set, motion_has_curves = fetch_action_bone_transform_set(motion_channelbag, root_bone_name)
     stored_start_loc, stored_start_rot = evaluate_action_bone_transform_set(stored_transform_set, from_frame)
     motion_start_loc, motion_start_rot = evaluate_action_bone_transform_set(motion_transform_set, 1)
 
@@ -4185,12 +4273,15 @@ def remove_key_from_channelbag(channelbag, key_name):
 
 
 def resample_blend(chr_cache, rig,
-                   motion_action, motion_slot,
-                   stored_action, stored_slot,
+                   motion_rig_channel, motion_key_channels, motion_data_channel,
+                   stored_rig_channel, stored_key_channels, stored_data_channel,
+                   key_targets,
                    from_frame, to_frame,
                    relative_root=False,
+                   current_root=False,
                    bone_names=None,
                    key_names=None,
+                   data_paths=None,
                    use_blend=False,
                    blend_in_frames=0,
                    blend_out_frames=0,
@@ -4202,17 +4293,24 @@ def resample_blend(chr_cache, rig,
     # clamp overall_strength
     overall_strength = max(0, min(1, overall_strength))
 
-    blend_mask_bones, use_mask_bone_blend, use_mask_bones = get_blend_mask_bones(chr_cache)
-    blend_mask_keys, use_mask_key_blend, use_mask_keys = get_blend_mask_keys(chr_cache)
-    use_blend = (use_blend and
-                    (overall_strength != 1.0 or
-                     blend_in_frames > 0 or
-                     blend_out_frames > 0))
-    process_bones = use_blend or use_mask_bones
-    process_keys = use_blend or use_mask_keys
-    overall_strength = overall_strength if use_blend else 1.0
+    blend_mask_bones = {}
+    use_mask_bones = False
+    blend_mask_keys = {}
+    use_mask_keys = False
+    blend_mask_data = {}
+    use_mask_data = False
 
-    print(f"use_blend: {use_blend}, process_bones: {process_bones}, process_keys: {process_keys}")
+    if chr_cache and rig.type == "ARMATURE":
+        blend_mask_bones, use_mask_bone_blend, use_mask_bones = get_blend_mask_bones(chr_cache)
+        blend_mask_keys, use_mask_key_blend, use_mask_keys = get_blend_mask_keys(chr_cache)
+
+    if rig.type == "LIGHT":
+        ...
+
+    if rig.type == "CAMERA":
+        ...
+
+    overall_strength = overall_strength if use_blend else 1.0
 
     frame_range = to_frame - from_frame + 1
     total_blend_frames = blend_in_frames + blend_out_frames
@@ -4222,30 +4320,107 @@ def resample_blend(chr_cache, rig,
         utils.log_warn(f"Blend range larger than motion. Rescaling to - in: {blend_in_frames}, out: {blend_out_frames}")
 
     if (not relative_root and
-        not process_bones and
-        not process_keys):
+        not current_root and
+        not use_blend):
         return
 
-    motion_channelbag = utils.get_action_channelbag(motion_action, slot=motion_slot)
-    stored_channelbag = utils.get_action_channelbag(stored_action, slot=stored_slot)
+    utils.log_info(f"Resampling motion: {from_frame} - {to_frame}, blend in: {blend_in_frames}, blend out: {blend_out_frames}, use_blend: {use_blend}")
 
     # resample bone tracks
+    #
+    if rig.type == "ARMATURE":
 
-    if not bone_names:
-        if process_bones:
-            bone_names = [ b.name for b in rig.pose.bones ]
-        else:
-            bone_names = [ rig.pose.bones[0].name ]
+        if not bone_names:
+            if use_blend:
+                bone_names = [ b.name for b in rig.pose.bones ]
+            elif relative_root or current_root:
+                bone_names = [ rig.pose.bones[0].name ]
+
+        blend_bone_curves(motion_rig_channel, stored_rig_channel,
+                          from_frame, to_frame,
+                          rig, bone_names, relative_root, current_root,
+                          use_blend, overall_strength,
+                          blend_in_frames, blend_out_frames,
+                          blend_in_data, blend_out_data,
+                          use_mask_bones, blend_mask_bones)
+
+        blend_data_curves(motion_rig_channel, stored_rig_channel,
+                          from_frame, to_frame,
+                          use_blend, overall_strength,
+                          blend_in_frames, blend_out_frames,
+                          blend_in_data, blend_out_data)
+
+    # resample shape key tracks
+    #
+    if rig.type == "ARMATURE":
+
+        if not key_names:
+            key_names = get_shape_key_names(rig) if use_blend else []
+
+        for obj_name in key_targets:
+
+            motion_key_channel = motion_key_channels[obj_name] \
+                                    if obj_name in motion_key_channels \
+                                    else (None, None, None)
+            stored_key_channel = stored_key_channels[obj_name] \
+                                    if obj_name in stored_key_channels \
+                                    else (None, None, None)
+
+            blend_key_curves(motion_key_channel, stored_key_channel,
+                             from_frame, to_frame,
+                             obj_name, key_names,
+                             use_blend, overall_strength,
+                             blend_in_frames, blend_out_frames,
+                             blend_in_data, blend_out_data,
+                             use_mask_keys, blend_mask_keys)
+
+    # process data
+    #
+    if rig.type == "LIGHT" or rig.type == "CAMERA":
+
+        blend_data_curves(motion_rig_channel, stored_rig_channel,
+                          from_frame, to_frame,
+                          use_blend, overall_strength,
+                          blend_in_frames, blend_out_frames,
+                          blend_in_data, blend_out_data)
+
+        blend_data_curves(motion_data_channel, stored_data_channel,
+                          from_frame, to_frame,
+                          use_blend, overall_strength,
+                          blend_in_frames, blend_out_frames,
+                          blend_in_data, blend_out_data)
+    return
+
+
+def blend_bone_curves(motion_channel, stored_channel,
+                      from_frame, to_frame,
+                      rig, bone_names, relative_root, current_root,
+                      use_blend, overall_strength,
+                      blend_in_frames, blend_out_frames,
+                      blend_in_data, blend_out_data,
+                      use_mask_bones, blend_mask_bones):
+
+    motion_action, motion_slot, motion_channelbag = motion_channel
+    stored_action, stored_slot, stored_channelbag = stored_channel
+
+    base_frames = set()
+    # include all blend in / out frames
+    if blend_in_frames > 0:
+        for i in range(from_frame, from_frame + blend_in_frames - 1 + 1):
+            base_frames.add(i)
+    if blend_out_frames > 0:
+        for i in range(to_frame - blend_out_frames + 1, to_frame + 1):
+            base_frames.add(i)
+
+    root_bone: bpy.types.PoseBone = rig.pose.bones[0]
 
     for bone_name in bone_names:
 
-        is_root = bone_name == rig.pose.bones[0].name
-        stored_transform_set = fetch_action_bone_transform_set(stored_channelbag, bone_name)
-        motion_transform_set = fetch_action_bone_transform_set(motion_channelbag, bone_name)
+        is_root = (bone_name == root_bone.name)
+        motion_transform_set, motion_has_curves = fetch_action_bone_transform_set(motion_channelbag, bone_name)
+        stored_transform_set, stored_has_curves = fetch_action_bone_transform_set(stored_channelbag, bone_name)
 
-        # if no motion curves, continue
-        # note: if no stored curves, they evaluate to zero
-        if motion_transform_set == (None, None):
+        if not motion_has_curves and not stored_has_curves:
             continue
 
         if is_root and relative_root:
@@ -4255,8 +4430,15 @@ def resample_blend(chr_cache, rig,
             MS = utils.make_transform_matrix(stored_start_loc, stored_start_rot)
             MM = utils.make_transform_matrix(motion_start_loc, motion_start_rot)
             MD = MS @ MM.inverted()
+        elif is_root and current_root:
+            # relative transformation between current rig root bone position and start of new motion
+            motion_start_loc, motion_start_rot = evaluate_action_bone_transform_set(motion_transform_set, 1)
+            MS = root_bone.matrix.copy()
+            MM = utils.make_transform_matrix(motion_start_loc, motion_start_rot)
+            MD = MS @ MM.inverted()
 
-        utils.log_detail(f"Blending motion bone: {motion_action.name} {bone_name} {from_frame}-{to_frame}")
+
+        utils.log_detail(f"Blending motion bone: {bone_name} {from_frame}-{to_frame}")
 
         # build a list of motion bone transform fcurves
         motion_loc_curves, motion_rot_curves = motion_transform_set
@@ -4268,31 +4450,28 @@ def resample_blend(chr_cache, rig,
         stored_loc_curves, stored_rot_curves = stored_transform_set
         stored_curves = stored_loc_curves + stored_rot_curves
 
-        # go through motion bone transform fcurves and build a list of discrete frames
-        frames = set()
+        frames = base_frames.copy()
+
+        # include all frames from the motion curve
         fcurve: bpy.types.FCurve = None
-        start_frame = None
-        end_frame = None
         for fcurve in motion_curves:
-            num_points = len(fcurve.keyframe_points)
-            data = [0.0, 0.0] * num_points
-            fcurve.keyframe_points.foreach_get('co', data)
-            for i in range(0, len(data), 2):
-                frame = data[i]
-                if not start_frame or frame < start_frame:
-                    start_frame = frame
-                if not end_frame or frame > end_frame:
-                    end_frame = frame
-                frames.add(frame)
-        # include frames from the source curve if blending
-        if process_bones:
-            for fcurve in stored_curves:
+            if fcurve:
                 num_points = len(fcurve.keyframe_points)
                 data = [0.0, 0.0] * num_points
                 fcurve.keyframe_points.foreach_get('co', data)
                 for i in range(0, len(data), 2):
                     frame = data[i]
-                    if frame > start_frame or frame < end_frame:
+                    frames.add(frame)
+
+        # include all frames from the source curve
+        if use_blend:
+            for fcurve in stored_curves:
+                if fcurve:
+                    num_points = len(fcurve.keyframe_points)
+                    data = [0.0, 0.0] * num_points
+                    fcurve.keyframe_points.foreach_get('co', data)
+                    for i in range(0, len(data), 2):
+                        frame = data[i]
                         frames.add(frame)
 
         # sort the frames in order
@@ -4312,19 +4491,19 @@ def resample_blend(chr_cache, rig,
             motion_loc, motion_rot = evaluate_action_bone_transform_set(motion_transform_set, frame)
 
             # apply relative root:
-            if is_root and relative_root:
+            if is_root and (relative_root or current_root):
                 motion_loc, motion_rot = evaluate_action_bone_transform_set(motion_transform_set, frame)
                 MF = utils.make_transform_matrix(motion_loc, motion_rot)
                 MR = MD @ MF
                 motion_loc = MR.to_translation()
                 motion_rot = MR.to_quaternion()
 
-            # apply motion blend:
-            if process_bones:
+            # if blending, apply motion blend:
+            if use_blend:
                 blend_strength = overall_strength
-                if frame < from_frame:
-                    blend_strength = 0
-                elif frame > to_frame:
+                stored_loc, stored_rot = evaluate_action_bone_transform_set(stored_transform_set, frame)
+
+                if frame < from_frame or frame > to_frame:
                     blend_strength = 0
                 elif blend_in_frames > 0 and frame < (from_frame + blend_in_frames):
                     pos = (frame - from_frame + 1) / (blend_in_frames + 1)
@@ -4332,79 +4511,104 @@ def resample_blend(chr_cache, rig,
                 elif blend_out_frames > 0 and frame > (to_frame - blend_out_frames):
                     pos = (frame - to_frame + blend_out_frames) / (blend_out_frames + 1)
                     blend_strength *= ui.eval_curve(blend_out_data, pos)
-                if blend_mask_bones:
+                if use_mask_bones:
                     if bone_name in blend_mask_bones:
                         blend_strength *= blend_mask_bones[bone_name]
                     else:
                         blend_strength = 0.0
-                #print(f"F: {frame} BS: {blend_strength}")
-                stored_loc, stored_rot = evaluate_action_bone_transform_set(stored_transform_set, frame)
-                blend_loc = stored_loc.lerp(motion_loc, blend_strength)
-                blend_rot = stored_rot.slerp(motion_rot, blend_strength)
+
+                if blend_strength <= 0:
+                    blend_loc = stored_loc
+                    blend_rot = stored_rot
+                elif blend_strength >= 1:
+                    blend_loc = motion_loc
+                    blend_rot = motion_rot
+                else:
+                    blend_loc = stored_loc.lerp(motion_loc, blend_strength)
+                    blend_rot = stored_rot.slerp(motion_rot, blend_strength)
+
+            # if not blending, use the motion transform directly
             else:
                 blend_loc = motion_loc
                 blend_rot = motion_rot
 
-            flat_transform = [blend_loc.x, blend_loc.y, blend_loc.z,
-                              blend_rot.w, blend_rot.x, blend_rot.y, blend_rot.z]
+            transform_data = [blend_loc.x, blend_loc.y, blend_loc.z,
+                                blend_rot.w, blend_rot.x, blend_rot.y, blend_rot.z]
 
-            # write to the resampled curve data:
+            # write frame to the resampled curve data:
             index = f * 2
             for i in range(0, num_curves):
                 resampled_data[i][index] = frame
-                resampled_data[i][index+1] = flat_transform[i]
+                resampled_data[i][index+1] = transform_data[i]
 
-        # write the resampled transposed curve data back to the motion transform curves:
+        # write the resampled curve data back to the motion transform curves:
         for i, fcurve in enumerate(motion_curves):
-            fcurve.keyframe_points.clear()
-            fcurve.keyframe_points.add(num_frames)
-            fcurve.keyframe_points.foreach_set('co', resampled_data[i])
-            reset_fcurve_interpolation(fcurve)
+            if not fcurve:
+                fcurve = clone_fcurve_to_channel(stored_curves[i], motion_channelbag)
+                if fcurve:
+                    utils.log_detail(f"Added bone fcurve {bone_name}[{i}]")
+            if fcurve:
+                fcurve.keyframe_points.clear()
+                fcurve.keyframe_points.add(num_frames)
+                fcurve.keyframe_points.foreach_set('co', resampled_data[i])
+                reset_fcurve_interpolation(fcurve)
 
-    # resample shape key tracks
 
-    if not key_names:
-        if process_keys:
-            key_names = get_shape_key_names(rig)
-        else:
-            key_names = []
+def blend_key_curves(motion_channel, stored_channel,
+                     from_frame, to_frame,
+                     obj_name, key_names,
+                     use_blend, overall_strength,
+                     blend_in_frames, blend_out_frames,
+                     blend_in_data, blend_out_data,
+                     use_mask_keys, blend_mask_keys):
+
+    motion_action, motion_slot, motion_channelbag = motion_channel
+    stored_action, stored_slot, stored_channelbag = stored_channel
+
+    base_frames = set()
+    # include all blend in / out frames
+    if blend_in_frames > 0:
+        for i in range(from_frame, from_frame + blend_in_frames - 1 + 1):
+            base_frames.add(i)
+    if blend_out_frames > 0:
+        for i in range(to_frame - blend_out_frames + 1, to_frame + 1):
+            base_frames.add(i)
 
     for key_name in key_names:
+
+        obj = bpy.data.objects[obj_name]
+        if not utils.object_has_shape_key(obj, key_name):
+            continue
 
         stored_key_curve = fetch_action_key_curve(stored_channelbag, key_name)
         motion_key_curve = fetch_action_key_curve(motion_channelbag, key_name)
 
-        # if no motion curve, continue
-        # note: if no stored curve, it evaluates to zero
-        if motion_key_curve == None:
+        if not stored_key_curve and not motion_key_curve:
             continue
 
-        utils.log_detail(f"Blending motion key: {motion_action.name} {key_name} {from_frame}-{to_frame}")
+        utils.log_detail(f"Blending motion key: {key_name} {from_frame}-{to_frame}")
 
         # go through motion bone transform fcurves and build a list of discrete frames
-        frames = set()
+        frames = base_frames.copy()
         fcurve: bpy.types.FCurve = None
-        start_frame = None
-        end_frame = None
+
         # add frames from the motion curve
         num_points = len(motion_key_curve.keyframe_points)
         data = [0.0, 0.0] * num_points
-        motion_key_curve.keyframe_points.foreach_get('co', data)
-        for i in range(0, len(data), 2):
-            frame = data[i]
-            if not start_frame or frame < start_frame:
-                start_frame = frame
-            if not end_frame or frame > end_frame:
-                end_frame = frame
-            frames.add(frame)
-        # also include frames from the source curve if blending
-        if process_keys:
-            num_points = len(stored_key_curve.keyframe_points)
-            data = [0.0, 0.0] * num_points
-            stored_key_curve.keyframe_points.foreach_get('co', data)
+        if motion_key_curve:
+            motion_key_curve.keyframe_points.foreach_get('co', data)
             for i in range(0, len(data), 2):
                 frame = data[i]
-                if frame > start_frame or frame < end_frame:
+                frames.add(frame)
+
+        # also include frames from the source curve
+        if use_blend:
+            if stored_key_curve:
+                num_points = len(stored_key_curve.keyframe_points)
+                data = [0.0, 0.0] * num_points
+                stored_key_curve.keyframe_points.foreach_get('co', data)
+                for i in range(0, len(data), 2):
+                    frame = data[i]
                     frames.add(frame)
 
         # sort the frames in order
@@ -4418,14 +4622,14 @@ def resample_blend(chr_cache, rig,
 
         # evaluate the motion curve at each frame ...
         for f, frame in enumerate(sorted_frames):
-            motion_value = evaluate_action_key_curve(motion_key_curve, frame)
+            motion_value = evaluate_action_curve(motion_key_curve, frame)
 
-            # apply motion blend:
-            if process_keys:
+            # if blending, apply motion blend:
+            if use_blend:
                 blend_strength = overall_strength
-                if frame < from_frame:
-                    blend_strength = 0
-                elif frame > to_frame:
+                stored_value = evaluate_action_curve(stored_key_curve, frame)
+
+                if frame < from_frame or frame > to_frame:
                     blend_strength = 0
                 elif blend_in_frames > 0 and frame < (from_frame + blend_in_frames):
                     pos = (frame - from_frame + 1) / (blend_in_frames + 1)
@@ -4433,28 +4637,165 @@ def resample_blend(chr_cache, rig,
                 elif blend_out_frames > 0 and frame > (to_frame - blend_out_frames):
                     pos = (frame - to_frame + blend_out_frames) / (blend_out_frames + 1)
                     blend_strength *= ui.eval_curve(blend_out_data, pos)
-                if blend_mask_keys:
+                if use_mask_keys:
                     if key_name in blend_mask_keys:
                         blend_strength *= blend_mask_keys[key_name]
                     else:
                         blend_strength = 0.0
-                stored_value = evaluate_action_key_curve(stored_key_curve, frame)
-                blend_value = utils.lerp(stored_value, motion_value, blend_strength)
+
+                if blend_strength <= 0:
+                    blend_value = stored_value
+                elif blend_strength >= 1:
+                    blend_value = motion_value
+                else:
+                    blend_value = utils.lerp(stored_value, motion_value, blend_strength)
+
+            # otherwise use motion value directly
             else:
                 blend_value = motion_value
 
-            # write to the resampled curve data:
+            # write frame to the resampled curve data:
             index = f * 2
             resampled_data[index] = frame
             resampled_data[index+1] = blend_value
 
         # write the resampled curve data back to the motion curve:
-        motion_key_curve.keyframe_points.clear()
-        motion_key_curve.keyframe_points.add(num_frames)
-        motion_key_curve.keyframe_points.foreach_set('co', resampled_data)
-        reset_fcurve_interpolation(motion_key_curve)
+        if not motion_key_curve:
+            motion_key_curve = clone_fcurve_to_channel(stored_key_curve, motion_channelbag)
+            if motion_key_curve:
+                utils.log_detail(f"Added key fcurve {obj_name}/{key_name}")
+        if motion_key_curve:
+            motion_key_curve.keyframe_points.clear()
+            motion_key_curve.keyframe_points.add(num_frames)
+            motion_key_curve.keyframe_points.foreach_set('co', resampled_data)
+            reset_fcurve_interpolation(motion_key_curve)
 
-    return
+
+def blend_data_curves(motion_channel, stored_channel,
+                      from_frame, to_frame,
+                      use_blend, overall_strength,
+                      blend_in_frames, blend_out_frames,
+                      blend_in_data, blend_out_data):
+
+    motion_action, motion_slot, motion_channelbag = motion_channel
+    stored_action, stored_slot, stored_channelbag = stored_channel
+
+    base_frames = set()
+    # include all blend in / out frames
+    if blend_in_frames > 0:
+        for i in range(from_frame, from_frame + blend_in_frames - 1 + 1):
+            base_frames.add(i)
+    if blend_out_frames > 0:
+        for i in range(to_frame - blend_out_frames + 1, to_frame + 1):
+            base_frames.add(i)
+
+    paths = {}
+    if motion_channelbag:
+        for fcurve in motion_channelbag.fcurves:
+            if (fcurve.data_path.startswith("pose.bones") or
+                fcurve.data_path.startswith("key_blocks")):
+                continue
+            path_id = (fcurve.data_path, fcurve.array_index)
+            paths[path_id] = [fcurve, None]
+    if stored_channelbag:
+        for fcurve in stored_channelbag.fcurves:
+            if (fcurve.data_path.startswith("pose.bones") or
+                fcurve.data_path.startswith("key_blocks")):
+                continue
+            path_id = (fcurve.data_path, fcurve.array_index)
+            if path_id in paths:
+                paths[path_id][1] = fcurve
+            else:
+                paths[path_id] = [None, fcurve]
+
+    for path_id, curves in paths.items():
+        data_path, array_index = path_id
+        motion_data_curve = curves[0]
+        stored_data_curve = curves[1]
+
+        utils.log_detail(f"Blending motion data: {data_path} {from_frame}-{to_frame}")
+
+        # go through motion bone transform fcurves and build a list of discrete frames
+        frames = base_frames.copy()
+        fcurve: bpy.types.FCurve = None
+
+        # add frames from the motion curve
+        if motion_data_curve:
+            num_points = len(motion_data_curve.keyframe_points)
+            data = [0.0, 0.0] * num_points
+            motion_data_curve.keyframe_points.foreach_get('co', data)
+            for i in range(0, len(data), 2):
+                frame = data[i]
+                frames.add(frame)
+
+        # also include frames from the source curve
+        if use_blend:
+            if stored_data_curve:
+                num_points = len(stored_data_curve.keyframe_points)
+                data = [0.0, 0.0] * num_points
+                stored_data_curve.keyframe_points.foreach_get('co', data)
+                for i in range(0, len(data), 2):
+                    frame = data[i]
+                    frames.add(frame)
+
+        # sort the frames in order
+        num_frames = len(frames)
+        sorted_frames = list(frames)
+        sorted_frames.sort()
+        utils.log_detail(f" - {num_frames} resampled frames")
+
+        # generate resampled data lists for the motion curve
+        resampled_data = [0.0, 0.0] * num_frames
+
+        # evaluate the motion curve at each frame ...
+        for f, frame in enumerate(sorted_frames):
+            motion_value = evaluate_action_curve(motion_data_curve, frame)
+
+            # if blending, apply motion blend:
+            if use_blend:
+                blend_strength = overall_strength
+                stored_value = evaluate_action_curve(stored_data_curve, frame)
+
+                if frame < from_frame or frame > to_frame:
+                    blend_strength = 0
+                elif blend_in_frames > 0 and frame < (from_frame + blend_in_frames):
+                    pos = (frame - from_frame + 1) / (blend_in_frames + 1)
+                    blend_strength *= ui.eval_curve(blend_in_data, pos)
+                elif blend_out_frames > 0 and frame > (to_frame - blend_out_frames):
+                    pos = (frame - to_frame + blend_out_frames) / (blend_out_frames + 1)
+                    blend_strength *= ui.eval_curve(blend_out_data, pos)
+                #if use_mask_paths:
+                #    if data_path in blend_mask_paths:
+                #        blend_strength *= blend_mask_paths[data_path]
+                #    else:
+                #        blend_strength = 0.0
+
+                if blend_strength <= 0:
+                    blend_value = stored_value
+                elif blend_strength >= 1:
+                    blend_value = motion_value
+                else:
+                    blend_value = utils.lerp(stored_value, motion_value, blend_strength)
+
+            # otherwise use motion value directly
+            else:
+                blend_value = motion_value
+
+            # write frame to the resampled curve data:
+            index = f * 2
+            resampled_data[index] = frame
+            resampled_data[index+1] = blend_value
+
+        # write the resampled curve data back to the motion curve:
+        if not motion_data_curve:
+            motion_data_curve = clone_fcurve_to_channel(stored_data_curve, motion_channelbag)
+            if motion_data_curve:
+                utils.log_detail(f"Added data fcurve {path_id}")
+        if motion_data_curve:
+            motion_data_curve.keyframe_points.clear()
+            motion_data_curve.keyframe_points.add(num_frames)
+            motion_data_curve.keyframe_points.foreach_set('co', resampled_data)
+            reset_fcurve_interpolation(motion_data_curve)
 
 
 def get_relative_transformation(motion_loc: Vector, motion_rot: Quaternion,
@@ -4467,10 +4808,11 @@ def get_relative_transformation(motion_loc: Vector, motion_rot: Quaternion,
 
 
 def fetch_action_key_curve(channelbag, key_name: str):
-    key_path = f"key_blocks[\"{key_name}\"].value"
-    for fcurve in channelbag.fcurves:
-        if fcurve.data_path == key_path:
-            return fcurve
+    if channelbag and key_name:
+        key_path = f"key_blocks[\"{key_name}\"].value"
+        for fcurve in channelbag.fcurves:
+            if fcurve.data_path == key_path:
+                return fcurve
     return None
 
 
@@ -4491,34 +4833,31 @@ def fetch_action_bone_transform_set(channelbag, bone_name: str):
         elif fcurve.data_path == rot_path:
             rot_curves[fcurve.array_index] = fcurve
             has_rot_curves = True
-    if has_rot_curves and has_loc_curves:
-        return loc_curves, rot_curves
-    else:
-        return None, None
+    return (loc_curves, rot_curves), has_loc_curves or has_rot_curves
 
 
 def evaluate_action_bone_transform_set(transform_set: tuple, frame: int):
     loc_curves, rot_curves = transform_set
-    if loc_curves:
+    try:
         loc = Vector((loc_curves[0].evaluate(frame),
                       loc_curves[1].evaluate(frame),
                       loc_curves[2].evaluate(frame)))
-    else:
+    except:
         loc = Vector((0,0,0))
-    if rot_curves:
+    try:
         rot = Quaternion((rot_curves[0].evaluate(frame),
                           rot_curves[1].evaluate(frame),
                           rot_curves[2].evaluate(frame),
                           rot_curves[3].evaluate(frame)))
-    else:
+    except:
         rot = Quaternion((1,0,0,0))
     return loc, rot
 
 
-def evaluate_action_key_curve(key_curve: tuple, frame: int):
-    if key_curve:
+def evaluate_action_curve(key_curve: tuple, frame: int):
+    try:
         value = key_curve.evaluate(frame)
-    else:
+    except:
         value = 0.0
     return value
 #endregion
@@ -5054,6 +5393,9 @@ class CCIC_AVAILABLEMIX_UL_List(bpy.types.UIList):
             layout.alignment = 'CENTER'
             layout.label(text="", icon_value=icon)
 
+    def is_rigify_bone(bone: bpy.types.Bone):
+        return False
+
     def filter_items(self, context, data, propname):
         props = vars.props()
         filtered = []
@@ -5238,8 +5580,23 @@ class CCICActionImportFunctions(bpy.types.Operator):
 
     @classmethod
     def description(cls, context, properties):
+        if properties.param == "ADD_BONE":
+            return "Add the selected bone to the bone mask"
+        if properties.param == "ADD_ALL_BONES":
+            return "Add all availble bones to the bone mask"
+        if properties.param == "REMOVE_BONE":
+            return "Remove the selected bone from the bone mask"
+        if properties.param == "REMOVE_ALL_BONES":
+            return "Remove all bones from the bone mask"
+        if properties.param == "ADD_KEY":
+            return "Add the selected shape key to the key mask"
+        if properties.param == "ADD_ALL_KEYS":
+            return "Add all available shape keys to the key mask"
+        if properties.param == "REMOVE_KEY":
+            return "Remove the selected key from the key mask"
+        if properties.param == "REMOVE_ALL_KEYS":
+            return "Remove all shape keys from the key mask"
         return ""
-
 
 class CCICMotionBlendFunctions(bpy.types.Operator):
     """Motion Blend Operator Functions"""
@@ -5262,55 +5619,75 @@ class CCICMotionBlendFunctions(bpy.types.Operator):
             return item
         return None
 
-    def save_preset(self, opts, type):
-        collection = None
-        if type == "BONE":
-            collection = opts.import_bones
-            preset_name = opts.preset_bone_mask_name
-            suffix = "Bone"
-        else:
-            collection = opts.import_keys
-            preset_name = opts.preset_key_mask_name
-            suffix = "Key"
-        if collection:
-            folder = utils.get_resource_folder("Presets")
-            file_name = os.path.join(folder, f"{suffix}_{preset_name}.json")
-            json_data = {}
-            for item in collection:
-                json_data[item.name] = item.weight
-            text_data = json.dumps(json_data, indent = 4)
-            with open(file_name, "w") as write_file:
-                write_file.write(text_data)
-        return
+    def remove_item(self, collection, name):
+        for i, item in enumerate(collection):
+            if item.name == name:
+                collection.remove(i)
 
-    def apply_preset(self, opts, type):
+    def save_preset(self, opts):
         props = vars.props()
-        collection = None
-        if type == "BONE":
-            available = opts.available_bones
-            collection = opts.import_bones
-            preset_name = props.blend_mask_bone_presets
-            suffix = "Bone"
-        else:
-            available = opts.available_keys
-            collection = opts.import_keys
-            preset_name = props.blend_mask_key_presets
-            suffix = "Key"
-        if collection is not None:
-            folder = utils.get_resource_folder("Presets")
-            file_name = os.path.join(folder, f"{suffix}_{preset_name}.json")
+        collections = {
+            "Bones": opts.import_bones,
+            "Keys": opts.import_keys,
+        }
+        folder = utils.get_resource_folder("Blend Presets")
+        file_name = os.path.join(folder, f"{opts.preset_mask_name}.json")
+        json_data = {}
+        if True: # dev option append preset
+            if os.path.exists(file_name):
+                file = open(file_name, "rt")
+                text_data = file.read()
+                file.close()
+                json_data = json.loads(text_data)
+        for type, collection in collections.items():
+            if type not in json_data:
+                json_data[type] = {}
+            for item in collection:
+                json_data[type][item.name] = item.weight
+        text_data = json.dumps(json_data, indent = 4)
+        with open(file_name, "w") as write_file:
+            write_file.write(text_data)
+        props.blend_mask_presets = opts.preset_mask_name
+
+    def delete_preset(self, opts):
+        props = vars.props()
+        folder = utils.get_resource_folder("Blend Presets")
+        file_name = os.path.join(folder, f"{opts.preset_mask_name}.json")
+        if os.path.exists(file_name) and os.path.isfile(file_name):
+            os.unlink(file_name)
+
+    def apply_preset(self, opts, remove=False):
+        props = vars.props()
+        folder = utils.get_resource_folder("Blend Presets")
+        preset_name = props.blend_mask_presets
+        file_name = os.path.join(folder, f"{preset_name}.json")
+        if os.path.exists(file_name):
             file = open(file_name, "rt")
             text_data = file.read()
             file.close()
             json_data = json.loads(text_data)
-            for name, weight in json_data.items():
-                available_item = self.get_item(available, name, create=False)
-                if available_item:
-                    import_item = self.get_item(collection, name, create=True)
-                    if import_item:
-                        import_item.name = name
-                        import_item.weight = weight
-        return
+            for type in json_data:
+                if type == "Bones":
+                    available = opts.available_bones
+                    collection = opts.import_bones
+                else:
+                    available = opts.available_keys
+                    collection = opts.import_keys
+                if collection is not None:
+                    for name, weight in json_data[type].items():
+                        available_item = self.get_item(available, name, create=False)
+                        if available_item:
+                            if remove:
+                                self.remove_item(collection, name)
+                            else:
+                                import_item = self.get_item(collection, name, create=True)
+                                if import_item:
+                                    import_item.name = name
+                                    import_item.weight = weight
+                                    if type == "Bones":
+                                        opts.use_bone_masking = True
+                                    else:
+                                        opts.use_key_masking = True
 
     def execute(self, context):
         props = vars.props()
@@ -5321,33 +5698,44 @@ class CCICMotionBlendFunctions(bpy.types.Operator):
 
             opts = chr_cache.action_options
 
-            if self.param == "SAVE_BONE_MODE_ON":
-                opts.mode_save_bone_mask = True
+            if self.param == "SAVE_MODE_ON":
+                opts.mode_save_mask_preset = True
+                opts.preset_mask_name = props.blend_mask_presets
 
-            if self.param == "SAVE_BONE_MODE_OFF":
-                opts.mode_save_bone_mask = False
+            if self.param == "SAVE_MODE_OFF":
+                opts.mode_save_mask_preset = False
 
-            if self.param == "SAVE_KEY_MODE_ON":
-                opts.mode_save_key_mask = True
+            if self.param == "SAVE_PRESET":
+                opts.mode_save_mask_preset = False
+                self.save_preset(opts)
 
-            if self.param == "SAVE_KEY_MODE_OFF":
-                opts.mode_save_key_mask = False
+            if self.param == "DELETE_PRESET":
+                opts.mode_save_mask_preset = False
+                self.delete_preset(opts)
 
-            if self.param == "SAVE_BONE_PRESET":
-                opts.mode_save_bone_mask = False
-                self.save_preset(opts, "BONE")
+            if self.param == "APPLY_PRESET":
+                self.apply_preset(opts)
 
-            if self.param == "SAVE_KEY_PRESET":
-                opts.mode_save_key_mask = False
-                self.save_preset(opts, "KEY")
-
-            if self.param == "APPLY_BONE_PRESET":
-                self.apply_preset(opts, "BONE")
-
-            if self.param == "APPLY_KEY_PRESET":
-                self.apply_preset(opts, "KEY")
+            if self.param == "REMOVE_PRESET":
+                self.apply_preset(opts, remove=True)
 
         return {'FINISHED'}
+
+    @classmethod
+    def description(cls, context, properties):
+        if properties.param == "SAVE_MODE_ON":
+            return "Enter Preset Save Mode"
+        if properties.param == "SAVE_MODE_ON":
+            return "Exit Preset Save Mode"
+        if properties.param == "SAVE_PRESET":
+            return "Save the preset"
+        if properties.param == "DELETE_PRESET":
+            return "Delete the preset"
+        if properties.param == "APPLY_PRESET":
+            return "Add the preset to the masks"
+        if properties.param == "REMOVE_PRESET":
+            return "Remove the preset from the masks"
+        return ""
 
 
 class CCICMotionBlend(bpy.types.Operator):
@@ -5383,52 +5771,44 @@ class CCICMotionBlend(bpy.types.Operator):
     @classmethod
     def label(cls, context, chr_cache=None):
         props = vars.props()
+        opts = props.action_options
+        chr_opts = None
         if not chr_cache:
             chr_cache = props.get_context_character_cache(context, strict=True)
-            if not chr_cache:
-                opts = props.action_options
         if chr_cache and chr_cache.action_options:
-            opts = chr_cache.action_options
+            if chr_cache.action_options.override_global:
+                opts = chr_cache.action_options
+            chr_opts = chr_cache.action_options
         action_text = {
             "NEW": "New",
             "REPLACE": "Replace",
-            "BLEND": "Overwrite",
         }
         frame_text = {
             "START": "Start",
             "CURRENT": "Current",
             "MATCH": "Match",
         }
-        mask_text = " (Mask)" if opts.use_bone_masking else ""
+        mask_text = " (Mask)" if chr_opts and (chr_opts.use_bone_masking or chr_opts.use_key_masking) else " (Blend)" if opts.use_blend else ""
         return f"{action_text[opts.get_action_mode()]} | {frame_text[opts.get_frame_mode()]}{mask_text}"
 
-    def preset_group(self, layout, opts, type):
+    def preset_group(self, layout, opts):
         props = vars.props()
         row = layout.row()
-        c1, c2 = utils.ui_two_column_layout(row, (5,1))
-
-        if type == "BONE":
-            if opts.mode_save_bone_mask:
-                c1.prop(opts, "preset_bone_mask_name", text="")
-                r = c2.row(align=True)
-                r.operator("ccic.motion_blend_funcs", text="", icon="FILE_TICK", depress=True).param = "SAVE_BONE_MODE_OFF"
-                r.operator("ccic.motion_blend_funcs", text="", icon="CHECKMARK").param = "SAVE_BONE_PRESET"
-            else:
-                c1.prop(props, "blend_mask_bone_presets", text="")
-                r = c2.row(align=True)
-                r.operator("ccic.motion_blend_funcs", text="", icon="FILE_TICK").param = "SAVE_BONE_MODE_ON"
-                r.operator("ccic.motion_blend_funcs", text="", icon="ADD").param = "APPLY_BONE_PRESET"
+        c1, c2, c3 = utils.ui_three_column_layout(row, (3,14,3))
+        if opts.mode_save_mask_preset:
+            c1.label(text="Save Preset:")
+            c2.prop(opts, "preset_mask_name", text="")
+            r = c3.row(align=False)
+            r.operator("ccic.motion_blend_funcs", text="", icon="FILE_TICK", depress=True).param = "SAVE_MODE_OFF"
+            r.operator("ccic.motion_blend_funcs", text="", icon="CHECKMARK").param = "SAVE_PRESET"
+            r.operator("ccic.motion_blend_funcs", text="", icon="TRASH").param = "DELETE_PRESET"
         else:
-            if opts.mode_save_key_mask:
-                c1.prop(opts, "preset_key_mask_name", text="")
-                r = c2.row(align=True)
-                r.operator("ccic.motion_blend_funcs", text="", icon="FILE_TICK", depress=True).param = "SAVE_KEY_MODE_OFF"
-                r.operator("ccic.motion_blend_funcs", text="", icon="CHECKMARK").param = "SAVE_KEY_PRESET"
-            else:
-                c1.prop(props, "blend_mask_key_presets", text="")
-                r = c2.row(align=True)
-                r.operator("ccic.motion_blend_funcs", text="", icon="FILE_TICK").param = "SAVE_KEY_MODE_ON"
-                r.operator("ccic.motion_blend_funcs", text="", icon="ADD").param = "APPLY_KEY_PRESET"
+            c1.label(text="Load Preset:")
+            c2.prop(props, "blend_mask_presets", text="")
+            r = c3.row(align=False)
+            r.operator("ccic.motion_blend_funcs", text="", icon="FILE_TICK").param = "SAVE_MODE_ON"
+            r.operator("ccic.motion_blend_funcs", text="", icon="TRIA_UP").param = "APPLY_PRESET"
+            r.operator("ccic.motion_blend_funcs", text="", icon="TRIA_DOWN").param = "REMOVE_PRESET"
 
 
     def draw(self, context):
@@ -5456,17 +5836,25 @@ class CCICMotionBlend(bpy.types.Operator):
         # blend operator always acts on character override
         if self.param == "BLEND":
             chr_override = True
+            if not self.chr_cache:
+                layout.label(text="No Character Selected!")
+                return
 
         col_1, col_2, col_3 = utils.ui_three_column_layout(column, (2, 5, 3))
+        row_3 = col_3.row()
         if self.param == "BLEND":
             col_1.label(text="Blend Options:")
             col_2.label(text=f"{self.chr_cache.character_name}")
-            col_3.label(text="")
+            row_3.label(text="")
 
         else:
             col_1.label(text="Motion Options:")
-            col_2.prop(self.chr_cache.action_options, "override_global", text=f"All Characters", invert_checkbox=True)
-            col_3.prop(self.chr_cache.action_options, "override_global", text=f"{self.chr_cache.character_name}")
+            if self.chr_cache:
+                col_2.prop(self.chr_cache.action_options, "override_global", text=f"All Characters", invert_checkbox=True)
+                row_3.prop(self.chr_cache.action_options, "override_global", text=f"{self.chr_cache.character_name}")
+            else:
+                col_2.label(text="Global Options")
+                row_3.label(text="")
 
         if not chr_override:
             opts = props.action_options
@@ -5475,7 +5863,8 @@ class CCICMotionBlend(bpy.types.Operator):
             col_3.prop(opts, "relative_root")
             col_1.label(text="Frame Mode:")
             col_2.prop(opts, "frame_mode", text="")
-            col_3.prop(opts, "current_root")
+            #col_3.prop(opts, "current_root")
+            col_3.label(text="")
             row = column.row()
             row.prop(opts, "use_blend")
             if opts.use_blend:
@@ -5493,59 +5882,61 @@ class CCICMotionBlend(bpy.types.Operator):
 
         else:
             opts = self.chr_cache.action_options
-            col_1.label(text="Action Mode:")
-            if self.param == "BLEND":
-                col_2.prop(opts, "blend_mode", text="")
-            else:
-                col_2.prop(opts, "action_mode", text="")
-            col_3.prop(opts, "relative_root")
-            col_1.label(text="Frame Mode:")
-            col_2.prop(opts, "frame_mode", text="")
-            col_3.prop(opts, "current_root")
-            if self.param == "BLEND":
-                col_1.separator()
-                col_2.separator()
-                col_3.separator()
-                source_range = get_motion_set_frame_range(opts.source_motion)
-                target_range = get_motion_set_frame_range(opts.target_motion)
-                col_1.label(text="Source Motion:")
-                col_2.prop(opts, "source_motion", text="")
-                col_3.label(text=f"Frames: {source_range[0]} - {source_range[1]}")
-                col_1.label(text="Destination Motion:")
-                col_2.prop(opts, "target_motion", text="")
-                col_3.label(text=f"Frames: {target_range[0]} - {target_range[1]}")
-
-                if opts.frame_mode == "START":
-                    start = 1
-                    end = source_range[1] - source_range[0] + start
-                elif opts.frame_mode == "CURRENT":
-                    start = bpy.context.scene.frame_current
-                    end = source_range[1] - source_range[0] + start
-                elif opts.frame_mode == "MATCH":
-                    start = source_range[0]
-                    end = source_range[1]
-                tot_start = min(start, target_range[0])
-                tot_end = max(end, target_range[1])
-
-                if opts.blend_mode == "NEW":
-                    col_1.label(text="As New Motion")
-                    col_2.prop(opts, "motion_prefix", text="")
-                    col_3.label(text=f"Blend Frames: {start} - {end}")
-                    col_1.label(text="")
-                    col_2.prop(opts, "motion_id", text="")
-                    col_3.label(text=f"Total Frames: {tot_start} - {tot_end}")
-                    name = self.get_new_motion_name()
-                    col_1.label(text="Motion Name:")
-                    col_2.label(text=name)
-                    col_3.label(text="")
+            if utils.ui_fake_drop_down(row_3, "", opts, "show_motion_options", align="RIGHT"):
+                col_1.label(text="Action Mode:")
+                if self.param == "BLEND":
+                    col_2.prop(opts, "blend_mode", text="")
                 else:
-                    col_1.label(text="")
-                    col_2.label(text=f"Blend Frames: {start} - {end}")
+                    col_2.prop(opts, "action_mode", text="")
+                col_3.prop(opts, "relative_root")
+                col_1.label(text="Frame Mode:")
+                col_2.prop(opts, "frame_mode", text="")
+                #col_3.prop(opts, "current_root")
+                col_3.label(text="")
+                if self.param == "BLEND":
+                    col_1.separator()
+                    col_2.separator()
+                    col_3.separator()
+                    source_range = get_motion_set_frame_range(opts.source_motion)
+                    target_range = get_motion_set_frame_range(opts.target_motion)
+                    col_1.label(text="Source Motion:")
+                    col_2.prop(opts, "source_motion", text="")
+                    col_3.label(text=f"Frames: {source_range[0]} - {source_range[1]}")
+                    col_1.label(text="Destination Motion:")
+                    col_2.prop(opts, "target_motion", text="")
+                    col_3.label(text=f"Frames: {target_range[0]} - {target_range[1]}")
+
+                    if opts.frame_mode == "START":
+                        start = 1
+                        end = source_range[1] - source_range[0] + start
+                    elif opts.frame_mode == "CURRENT":
+                        start = bpy.context.scene.frame_current
+                        end = source_range[1] - source_range[0] + start
+                    elif opts.frame_mode == "MATCH":
+                        start = source_range[0]
+                        end = source_range[1]
+                    tot_start = min(start, target_range[0])
+                    tot_end = max(end, target_range[1])
+
+                    if opts.blend_mode == "NEW":
+                        col_1.label(text="As New Motion")
+                        col_2.prop(opts, "motion_prefix", text="")
+                        col_3.label(text=f"Blend Frames: {start} - {end}")
+                        col_1.label(text="")
+                        col_2.prop(opts, "motion_id", text="")
+                        col_3.label(text=f"Total Frames: {tot_start} - {tot_end}")
+                        name = self.get_new_motion_name()
+                        col_1.label(text="Motion Name:")
+                        col_2.label(text=name)
+                        col_3.label(text="")
+                    else:
+                        col_1.label(text="")
+                        col_2.label(text=f"Blend Frames: {start} - {end}")
 
             row = column.row()
             row.prop(opts, "use_blend")
             if opts.use_blend:
-                if utils.ui_fake_drop_down(row, "", opts, "show_blend_options"):
+                if utils.ui_fake_drop_down(row, "", opts, "show_blend_options", align="RIGHT"):
                     grid = column.grid_flow(row_major=True, columns=2)
                     grid.prop(opts, "blend_in_frames")
                     grid.prop(opts, "blend_out_frames")
@@ -5562,19 +5953,17 @@ class CCICMotionBlend(bpy.types.Operator):
 
             # bone masking
             row = column.row()
-            col_1, col_2 = utils.ui_two_column_layout(row, (5, 4))
-            col_1.prop(opts, "use_bone_masking")
+            row.prop(opts, "use_bone_masking")
             if opts.use_bone_masking:
                 if utils.ui_fake_drop_down(row, "", opts, "show_bone_mask_options", align="RIGHT"):
                     b_prop = self.get_mix_bone_prop(self.chr_cache)
                     row = column.row()
-                    col = row.column()
-                    col.template_list("CCIC_AVAILABLEMIX_UL_List", "available_bones_list",
+                    c1, c2, c3 = utils.ui_three_column_layout(row, (12,1,12))
+                    c1.template_list("CCIC_AVAILABLEMIX_UL_List", "available_bones_list",
                                         opts, "available_bones",
                                         opts, "available_bones_index",
-                                        rows=4, maxrows=4)
-                    self.preset_group(col, opts, "BONE")
-                    col = row.column()
+                                        rows=5, maxrows=4)
+                    col = c2.column()
                     #col.separator(factor=4.0)
                     col.operator("ccic.action_import_functions", text="", icon="TRIA_RIGHT_BAR").param = "ADD_ALL_BONES"
                     col.operator("ccic.action_import_functions", text="", icon="TRIA_RIGHT").param = "ADD_BONE"
@@ -5582,29 +5971,27 @@ class CCICMotionBlend(bpy.types.Operator):
                     col.operator("ccic.action_import_functions", text="", icon="TRIA_LEFT").param = "REMOVE_BONE"
                     col.operator("ccic.action_import_functions", text="", icon="TRIA_LEFT_BAR").param = "REMOVE_ALL_BONES"
                     #col.separator(factor=4.0)
-                    col = row.column()
                     rows = 4 if b_prop else 5
-                    col.template_list("CCIC_IMPORTMIX_UL_List", "import_bones_list",
+                    c3.template_list("CCIC_IMPORTMIX_UL_List", "import_bones_list",
                                         opts, "import_bones",
                                         opts, "import_bones_index",
                                         rows=rows, maxrows=rows)
                     if b_prop:
-                        col.prop(b_prop, "weight", text="Blend Weight", slider=True)
+                        c3.prop(b_prop, "weight", text="Blend Weight", slider=True)
 
             # key masking
             row = column.row()
             row.prop(opts, "use_key_masking")
             if opts.use_key_masking:
-                if utils.ui_fake_drop_down(row, "", opts, "show_key_mask_options"):
+                if utils.ui_fake_drop_down(row, "", opts, "show_key_mask_options", align="RIGHT"):
                     k_prop = self.get_mix_key_prop(self.chr_cache)
                     row = column.row()
-                    col = row.column()
-                    col.template_list("CCIC_AVAILABLEMIX_UL_List", "available_keys_list",
+                    c1, c2, c3 = utils.ui_three_column_layout(row, (12,1,12))
+                    c1.template_list("CCIC_AVAILABLEMIX_UL_List", "available_keys_list",
                                         opts, "available_keys",
                                         opts, "available_keys_index",
-                                        rows=4, maxrows=4)
-                    self.preset_group(col, opts, "KEY")
-                    col = row.column()
+                                        rows=5, maxrows=4)
+                    col = c2.column()
                     col.operator("ccic.action_import_functions", text="", icon="TRIA_RIGHT_BAR").param = "ADD_ALL_KEYS"
                     col.operator("ccic.action_import_functions", text="", icon="TRIA_RIGHT").param = "ADD_KEY"
                     col.separator(factor=2.0)
@@ -5612,12 +5999,17 @@ class CCICMotionBlend(bpy.types.Operator):
                     col.operator("ccic.action_import_functions", text="", icon="TRIA_LEFT_BAR").param = "REMOVE_ALL_KEYS"
                     col = row.column()
                     rows = 4 if k_prop else 5
-                    col.template_list("CCIC_IMPORTMIX_UL_List", "import_keys_list",
+                    c3.template_list("CCIC_IMPORTMIX_UL_List", "import_keys_list",
                                         opts, "import_keys",
                                         opts, "import_keys_index",
                                         rows=rows, maxrows=rows)
                     if k_prop:
-                        col.prop(k_prop, "weight", text="Blend Weight", slider=True)
+                        c3.prop(k_prop, "weight", text="Blend Weight", slider=True)
+
+            # presets
+            if opts.use_bone_masking or opts.use_key_masking:
+                row = layout.row()
+                self.preset_group(row, opts)
 
     def get_mix_bone_prop(self, chr_cache):
         bone_item = None
@@ -5639,6 +6031,25 @@ class CCICMotionBlend(bpy.types.Operator):
             except: ...
         return key_item
 
+    def is_valid_bone(self, bone: bpy.types.Bone):
+        if self.chr_cache.rigified:
+            # also ignore bones with drivers?
+            if (bone.name.startswith("facerig")):
+                return False
+            if (bone.name.startswith("CTRL_") and
+                (bone.name.endswith("_line") or bone.name.endswith("_box"))):
+                return False
+            if ("VIS" in bone.name):
+                    return False
+            collection: bpy.types.BoneCollection
+            for collection in bone.collections:
+                if ("Hidden" in collection.name or
+                    "ORG" in collection.name or
+                    "MCH" in collection.name or
+                    "DEF" in collection.name):
+                    return False
+        return True
+
     def build_available(self):
         if self.chr_cache:
             props = self.chr_cache.action_options
@@ -5648,8 +6059,9 @@ class CCICMotionBlend(bpy.types.Operator):
             arm = self.chr_cache.get_armature()
             if arm:
                 for bone in arm.data.bones:
-                    bone_item = props.available_bones.add()
-                    bone_item.name = bone.name
+                    if self.is_valid_bone(bone):
+                        bone_item = props.available_bones.add()
+                        bone_item.name = bone.name
 
                 keys = []
                 for obj in arm.children:
@@ -5698,13 +6110,12 @@ class CCICMotionBlend(bpy.types.Operator):
             # load the source motion
             load_motion_set(actor_rig, source_motion)
             # shift motion frames based on frame mode option
-            #shift_motion_frames(...)
+            if opts.frame_mode == "START":
+                shift_motion_frames(source_motion, 1)
+            elif opts.frame_mode == "CURRENT":
+                shift_motion_frames(source_motion, bpy.context.scene.frame_current)
             finalize_motion_import(self.chr_cache, actor_rig, source_motion,
                                    action_store_id, blend_mode, chr_override=True)
-
-
-
-
         return {'FINISHED'}
 
     def invoke(self, context, event):
@@ -5719,7 +6130,7 @@ class CCICMotionBlend(bpy.types.Operator):
         if self.chr_cache:
             actor_rig = self.chr_cache.get_armature()
             opts = self.chr_cache.action_options
-            opts.blend_mode = "NEW" if opts.action_mode == "NEW" else "BLEND"
+            opts.blend_mode = opts.action_mode
             opts.source_motion = utils.collection_at_index(props.action_set_list_index, bpy.data.actions)
             opts.target_motion = utils.safe_get_action(actor_rig)
         self.build_available()
@@ -5734,6 +6145,10 @@ class CCICMotionBlend(bpy.types.Operator):
 
     @classmethod
     def description(cls, context, properties):
-        return "Description"
+        if properties.param == "BLEND":
+            return "Blend motions using options including: blending, overwriting, frame shifting, bone and shape key masking"
+        else:
+            return "Options for importing motions, including: blending, overwriting, frame shifting, bone and shape key masking"
+        return ""
 # endregion
 

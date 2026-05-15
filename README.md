@@ -33,6 +33,9 @@ Links
 
 ## Changelog
 
+### 2.4.1
+-
+
 ### 2.4.0
 - Displacement update for Skin and Pbr materials.
 - Displacement added for Teeth and Hair.

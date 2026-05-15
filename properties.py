@@ -599,25 +599,13 @@ def clean_collection_property(collection_prop):
                     break
 
 
-def blend_mask_bone_preset_list(self, context):
-    preset_list = [("NONE", "Bone Mask Presets ...", "Bone Presets ...", 0)]
-    folder = utils.get_resource_folder("Presets")
-    json_files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)) and f.startswith("Bone_") and f.endswith(".json")]
+def blend_mask_preset_list(self, context):
+    preset_list = [("NONE", "Blend Mask Presets ...", "Blend Presets ...", 0)]
+    folder = utils.get_resource_folder("Blend Presets")
+    json_files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)) and f.endswith(".json")]
     i = 1
     for file in json_files:
-        preset_name = file[5:-5]
-        preset_list.append((preset_name, preset_name, preset_name, i))
-        i += 1
-    return preset_list
-
-
-def blend_mask_key_preset_list(self, context):
-    preset_list = [("NONE", "Shape Key Mask Presets ...", "Key Presets ...", 0)]
-    folder = utils.get_resource_folder("Presets")
-    json_files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)) and f.startswith("Key_") and f.endswith(".json")]
-    i = 1
-    for file in json_files:
-        preset_name = file[4:-5]
+        preset_name = file[:-5]
         preset_list.append((preset_name, preset_name, preset_name, i))
         i += 1
     return preset_list
@@ -743,11 +731,10 @@ class CCICActionOptions(bpy.types.PropertyGroup):
     action_mode: bpy.props.EnumProperty(items=[
                         ("NEW","New","Import into new motions"),
                         ("REPLACE","Replace","Imported motion will replace the existing motion on the character / rig"),
-                        ("BLEND","Overwrite","Overwrite keyframes in the existing motion with the imported motion (or pose)"),
                     ], default="NEW", name = "Import Action Mode")
     blend_mode: bpy.props.EnumProperty(items=[
                         ("NEW","New","Blend the source motion onto the destination as a new motion"),
-                        ("BLEND","Overwrite","Blend the source motion onto the existing destination motion"),
+                        ("REPLACE","Replace","Blend the source motion onto the existing destination motion"),
                     ], default="NEW", name = "Action Blend Mode")
     frame_mode: bpy.props.EnumProperty(items=[
                         ("START","Start","Import / Blend keyframes starting at the start frame (frame 1)"),
@@ -790,13 +777,12 @@ class CCICActionOptions(bpy.types.PropertyGroup):
     target_motion: bpy.props.PointerProperty(type=bpy.types.Action)
     motion_prefix: bpy.props.StringProperty(default="Blend")
     motion_id: bpy.props.StringProperty(default="New Motion")
+    show_motion_options: bpy.props.BoolProperty(default=True)
     show_blend_options: bpy.props.BoolProperty(default=True)
     show_bone_mask_options: bpy.props.BoolProperty(default=True)
     show_key_mask_options: bpy.props.BoolProperty(default=True)
-    mode_save_bone_mask: bpy.props.BoolProperty(default=False)
-    mode_save_key_mask: bpy.props.BoolProperty(default=False)
-    preset_bone_mask_name: bpy.props.StringProperty(default="New Bone Mask Preset")
-    preset_key_mask_name: bpy.props.StringProperty(default="New Key Mask Preset")
+    mode_save_mask_preset: bpy.props.BoolProperty(default=False)
+    preset_mask_name: bpy.props.StringProperty(default="New Blend Mask Preset")
     # some masking settings ...
     # some masking presets ...
     # export / import presets ...
@@ -3351,8 +3337,7 @@ class CC3ImportProps(bpy.types.PropertyGroup):
     rigified_action_list_index: bpy.props.IntProperty(default=-1)
     rigified_action_list_action: bpy.props.PointerProperty(type=bpy.types.Action)
 
-    blend_mask_bone_presets: bpy.props.EnumProperty(items=blend_mask_bone_preset_list, default=0, description="Presets for motion blend bone masking", name="Blend Mask Bone Presets")
-    blend_mask_key_presets: bpy.props.EnumProperty(items=blend_mask_key_preset_list, default=0, description="Presets for motion blend shape key masking", name="Blend Mask Shape Key Presets")
+    blend_mask_presets: bpy.props.EnumProperty(items=blend_mask_preset_list, default=0, description="Presets for motion blend masking", name="Blend Mask Presets")
 
     wrinkle_regions: bpy.props.EnumProperty(items=[
                         ("ALL", "All", "All Regions"),
@@ -3548,7 +3533,7 @@ class CC3ImportProps(bpy.types.PropertyGroup):
                     restored = True
         return restored
 
-    def fetch_stored_rig_action(self, store_id):
+    def fetch_stored_rig_channel(self, store_id):
         action_store: CCICActionStore
         for action_store in self.action_options.action_store:
             if action_store.store_id == store_id:
@@ -3558,8 +3543,37 @@ class CC3ImportProps(bpy.types.PropertyGroup):
                     action = action_store.object_action
                     slot_id = action_store.object_slot_id
                     slot = utils.get_action_slot(action, slot_id=slot_id)
-                    return action, slot
-        return None, None
+                    channelbag = utils.get_action_channelbag(action, slot)
+                    return action, slot, channelbag
+        return None, None, None
+
+    def fetch_stored_key_channels(self, store_id):
+        action_store: CCICActionStore
+        key_actions = {}
+        for action_store in self.action_options.action_store:
+            if action_store.store_id == store_id:
+                if (utils.object_exists_has_shape_keys(action_store.object)):
+                    obj = action_store.object
+                    action = action_store.object_action
+                    slot_id = action_store.object_slot_id
+                    slot = utils.get_action_slot(action, slot_id=slot_id)
+                    channelbag = utils.get_action_channelbag(action, slot)
+                    key_actions[obj.name] = (action, slot, channelbag)
+        return key_actions
+
+    def fetch_stored_data_channel(self, store_id):
+        action_store: CCICActionStore
+        for action_store in self.action_options.action_store:
+            if action_store.store_id == store_id:
+                if (utils.object_exists_is_light(action_store.object) or
+                    utils.object_exists_is_camera(action_store.object)):
+                    action = action_store.data_action
+                    slot_id = action_store.data_slot_id
+                    slot = utils.get_action_slot(action, slot_id=slot_id)
+                    channelbag = utils.get_action_channelbag(action, slot)
+                    return action, slot, channelbag
+        return None, None, None
+
 
     def fetch_action_stores(self, store_id: str):
         """This returns a list of the action store Property Collection items directly"""

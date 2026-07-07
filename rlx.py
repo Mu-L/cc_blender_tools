@@ -130,6 +130,43 @@ def remap_file(file_path, data_folder):
     return file_path
 
 
+def get_rlx_generation(obj):
+    data_type = str.capitalize(str(obj.type))
+    if obj.type == "LIGHT":
+        data_type = str.capitalize(str(obj.data.type)) + data_type
+    return data_type
+
+
+def add_rlx_motion_set_data(obj, actions, old_action=None):
+    acts = set()
+    data_action = actions[1]
+    if actions is None:
+        acts = set([utils.safe_get_action(obj), utils.safe_get_action(obj.data)])
+    if type(actions) is bpy.types.Action:
+        acts.add(actions)
+    else:
+        acts = set(actions)
+    if None in acts:
+        acts.remove(None)
+    actions = list(acts)
+    if obj:
+        obj_id = utils.get_rl_id(obj)
+        set_generation = get_rlx_generation(obj)
+        if old_action:
+            set_id = rigutils.get_motion_set_ids(old_action)[0]
+        else:
+            set_id = rigutils.generate_set_id()
+        is_slotted = len(actions) == 1 and rigutils.is_slotted_action(actions[0])
+        for action in actions:
+            is_light = action == data_action and obj.type == "LIGHT"
+            is_camera = action == data_action and obj.type == "CAMERA"
+            rigutils.add_motion_set_data(action, set_id, set_generation,
+                                         rlx_id=obj_id, slotted=is_slotted,
+                                         is_light=is_light, is_camera=is_camera)
+        return True
+    return False
+
+
 def prep_rlx_actions(actor: 'RLXActor', motion_id, timestamp=False, motion_prefix=None):
     props = vars.props()
     prefs = vars.prefs()
@@ -144,17 +181,24 @@ def prep_rlx_actions(actor: 'RLXActor', motion_id, timestamp=False, motion_prefi
     actor.action_store_id = props.store_actions(obj)
     # generate names
     T = utils.get_slot_type_for(obj.data)
-    ob_name = rigutils.generate_action_name(name, "O", "", motion_id, motion_prefix)
-    data_name = rigutils.generate_action_name(name, T[0], "", motion_id, motion_prefix)
+    use_slotted = prefs.use_action_slots()
+    ob_name = rigutils.make_rlx_action_name(name, motion_id, motion_prefix, slotted=use_slotted)
+    ob_slot_name = f"{obj.name} (Object)"
+    data_name = rigutils.make_data_action_name(obj, name, motion_id, motion_prefix)
+    data_slot_name = f"{obj.name} ({obj.type.capitalize()})"
     ob_action = bpy.data.actions.new(ob_name)
-    if prefs.use_action_slots():
+    if use_slotted:
         data_action = ob_action
-        ob_slot = ob_action.slots.new("OBJECT", ob_name)
-        data_slot = data_action.slots.new(T, data_name)
     else:
         data_action = bpy.data.actions.new(data_name)
+    if utils.B440():
+        ob_slot = ob_action.slots.new("OBJECT", ob_slot_name)
+        data_slot = data_action.slots.new(T, data_slot_name)
+    else:
         ob_slot = None
         data_slot = None
+    # motion set ids
+    add_rlx_motion_set_data(obj, [ob_action, data_action])
     # set the actions
     utils.safe_set_action(obj, ob_action, slot=ob_slot)
     utils.safe_set_action(obj.data, data_action, slot=data_slot)
@@ -169,14 +213,23 @@ class RLXActor():
         self.object = object
         self.name = object.name
 
-    def get_import_modes(self):
+    def get_rlx_cache(self, create=False):
         props = vars.props()
-        action_mode = props.action_options.get_action_mode()
-        frame_mode = props.action_options.get_frame_mode()
-        return action_mode, frame_mode
+        return props.get_staging_cache(self.object, create=create)
+
+    def get_link_id(self):
+        if self.object:
+            return utils.get_rl_link_id(self.object)
+        else:
+            rlx_cache = self.get_rlx_cache()
+            if rlx_cache:
+                return rlx_cache.get_link_id()
+        return None
 
 
 def import_rlx_light(data: BinaryData, data_folder, start_frame=1):
+    props = vars.props()
+
     light_data = data.json()
     # make the light
     link_id = light_data["link_id"]
@@ -257,13 +310,14 @@ def import_rlx_light(data: BinaryData, data_folder, start_frame=1):
         store_frame(light, render_cache, frame, start_frame, 0.0 if active else 1.0)
 
     actor = RLXActor(light)
+    rlx_cache = actor.get_rlx_cache(create=True)
     ob_action, light_action, ob_slot, light_slot = prep_rlx_actions(actor, "Export",
                                                                     timestamp=True)
     add_cache_fcurves(ob_action, light.path_from_id("location"), loc_cache, num_frames, "Location", slot=ob_slot)
     add_cache_rotation_fcurves(light, ob_action, rot_cache, num_frames, slot=ob_slot)
     add_cache_fcurves(ob_action, light.path_from_id("scale"), sca_cache, num_frames, "Scale", slot=ob_slot)
-    add_cache_fcurves(light_action, light.path_from_id("hide_viewport"), visible_cache, num_frames, "Hide Viewport", slot=ob_slot, interpolation="CONSTANT")
-    add_cache_fcurves(light_action, light.path_from_id("hide_render"), render_cache, num_frames, "Hide Render", slot=ob_slot, interpolation="CONSTANT")
+    add_cache_fcurves(ob_action, light.path_from_id("hide_viewport"), visible_cache, num_frames, "Hide Viewport", slot=ob_slot, interpolation="CONSTANT")
+    add_cache_fcurves(ob_action, light.path_from_id("hide_render"), render_cache, num_frames, "Hide Render", slot=ob_slot, interpolation="CONSTANT")
     add_cache_fcurves(light_action, light.data.path_from_id("color"), color_cache, num_frames, "Color", slot=light_slot)
     add_cache_fcurves(light_action, light.data.path_from_id("energy"), energy_cache, num_frames, "Energy", slot=light_slot)
     add_cache_fcurves(light_action, light.data.path_from_id("cutoff_distance"), cutoff_distance_cache, num_frames, "Cutoff Distance", slot=light_slot)
@@ -271,8 +325,7 @@ def import_rlx_light(data: BinaryData, data_folder, start_frame=1):
         add_cache_fcurves(light_action, light.data.path_from_id("spot_blend"), spot_blend_cache, num_frames, "Spot Blend", slot=light_slot)
         add_cache_fcurves(light_action, light.data.path_from_id("spot_size"), spot_size_cache, num_frames, "Spot Size", slot=light_slot)
 
-    action_mode, frame_mode = actor.get_import_modes()
-    rigutils.finalize_rlx_import(light, [ob_action, light_action], actor.action_store_id, action_mode)
+    rigutils.finalize_rlx_import(rlx_cache, light, [ob_action, light_action], actor.action_store_id)
 
 
 def import_rlx_camera(data: BinaryData, data_folder, start_frame=1):
@@ -338,6 +391,7 @@ def import_rlx_camera(data: BinaryData, data_folder, start_frame=1):
         active_cache.append((frame, time, active))
 
     actor = RLXActor(camera)
+    rlx_cache = actor.get_rlx_cache(create=True)
     ob_action, cam_action, ob_slot, cam_slot = prep_rlx_actions(actor, "Export",
                                                                 timestamp=True)
     add_cache_fcurves(ob_action, "location", loc_cache, num_frames, "Location", slot=ob_slot)
@@ -349,9 +403,7 @@ def import_rlx_camera(data: BinaryData, data_folder, start_frame=1):
     add_cache_fcurves(cam_action, "dof.aperture_fstop", f_stop_cache, num_frames, "DOF", slot=cam_slot)
     add_camera_markers(camera, active_cache, num_frames, start_frame)
 
-
-    action_mode, frame_mode = actor.get_import_modes()
-    rigutils.finalize_rlx_import(camera, [ob_action, cam_action], actor.action_store_id, action_mode)
+    rigutils.finalize_rlx_import(rlx_cache, camera, [ob_action, cam_action], actor.action_store_id)
 
 
 def frame_rotation_cache(obj, frames):
@@ -503,6 +555,9 @@ def add_camera_markers(camera, cache, num_frames, start):
 
 
 def decode_rlx_light(light_data, light: bpy.types.Object=None, container=None):
+    props = vars.props()
+
+    rlx_cache = props.get_staging_cache(light)
     # static properties
     link_id = light_data["link_id"]
     name: str = light_data["name"]
@@ -547,6 +602,14 @@ def decode_rlx_light(light_data, light: bpy.types.Object=None, container=None):
         else:
             light = add_spot_light(light_data["name"], container)
         utils.set_rl_link_id(light, link_id)
+
+    utils.set_prop(light, "rl_set_generation", get_rlx_generation(light))
+
+    if rlx_cache:
+        rlx_cache.update_object(light)
+    else:
+        rlx_cache = props.add_staging_cache()
+        rlx_cache.update_object(light)
 
     utils.safe_set_action(light, ob_action, slot=ob_slot)
     utils.safe_set_action(light.data, light_action, light_slot)
@@ -635,6 +698,9 @@ def apply_light_pose(light, loc, rot, sca, color, active, multiplier, range, ang
 
 
 def decode_rlx_camera(camera_data, camera):
+    props = vars.props()
+
+    rlx_cache = props.get_staging_cache(camera)
     # static properties
     link_id = camera_data["link_id"]
     name: str = camera_data["name"]
@@ -672,6 +738,14 @@ def decode_rlx_camera(camera_data, camera):
     if not camera:
         camera = add_camera(name)
         utils.set_rl_link_id(camera, link_id)
+
+    utils.set_prop(camera, "rl_set_generation", get_rlx_generation(camera))
+
+    if rlx_cache:
+        rlx_cache.update_object(camera)
+    else:
+        rlx_cache = props.add_staging_cache()
+        rlx_cache.update_object(camera)
 
     utils.safe_set_action(camera, ob_action, slot=ob_slot)
     utils.safe_set_action(camera.data, cam_action, slot=cam_slot)

@@ -20,6 +20,7 @@ from mathutils import Vector
 from . import (channel_mixer, imageutils, meshutils, sculpting, materials, rigidbody,
                facerig, facerig_data, springbones, rigify_mapping_data, modifiers, nodeutils, shaders,
                params, physics, basic, jsonutils, utils, vars)
+from . rlx import get_rlx_generation
 from .meshutils import get_head_body_object_quick
 
 
@@ -728,14 +729,6 @@ class CCIC_UI_MixItem(bpy.types.PropertyGroup):
 
 
 class CCICActionOptions(bpy.types.PropertyGroup):
-    action_mode: bpy.props.EnumProperty(items=[
-                        ("NEW","New","Import into new motions"),
-                        ("REPLACE","Replace","Imported motion will replace the existing motion on the character / rig"),
-                    ], default="NEW", name = "Import Action Mode")
-    blend_mode: bpy.props.EnumProperty(items=[
-                        ("NEW","New","Blend the source motion onto the destination as a new motion"),
-                        ("REPLACE","Replace","Blend the source motion onto the existing destination motion"),
-                    ], default="NEW", name = "Action Blend Mode")
     frame_mode: bpy.props.EnumProperty(items=[
                         ("START","Start","Import / Blend keyframes starting at the start frame (frame 1)"),
                         ("CURRENT","Current","Import / Blend keyframes starting at the current frame"),
@@ -745,8 +738,6 @@ class CCICActionOptions(bpy.types.PropertyGroup):
                                         description="Only import the keyframes from the masked bones")
     use_key_masking: bpy.props.BoolProperty(default=False, name="Use Shape-Key Masking",
                                         description="Only import the keyframes from the masked shape-keys")
-    override_global: bpy.props.BoolProperty(default=False, name="Override for Character:",
-                                            description="Override the global action options for this character or prop")
     import_bones: bpy.props.CollectionProperty(type=CCIC_UI_MixItem)
     import_keys: bpy.props.CollectionProperty(type=CCIC_UI_MixItem)
     available_bones: bpy.props.CollectionProperty(type=CCICStringList)
@@ -787,14 +778,9 @@ class CCICActionOptions(bpy.types.PropertyGroup):
     # some masking presets ...
     # export / import presets ...
 
-    def get_action_mode(self):
-        props = vars.props()
-        action_mode = self.action_mode if self.override_global else props.action_options.action_mode
-        return action_mode
-
     def get_frame_mode(self):
         props = vars.props()
-        frame_mode = self.frame_mode if self.override_global else props.action_options.frame_mode
+        frame_mode = self.frame_mode
         return frame_mode
 
     def get_start_frame(self, ccic_start_frame, blender_current_frame):
@@ -1672,6 +1658,12 @@ class CC3ObjectCache(bpy.types.PropertyGroup):
     def is_armature(self):
         return utils.object_exists_is_armature(self.object)
 
+    def is_light(self):
+        return utils.object_exists_is_light(self.object)
+
+    def is_camera(self):
+        return utils.object_exists_is_camera(self.object)
+
     def get_object(self, return_invalid=False):
         if utils.object_exists(self.object):
             return self.object
@@ -1704,7 +1696,7 @@ class CC3ObjectCache(bpy.types.PropertyGroup):
         if self.object_id == "":
             self.object_id = utils.generate_random_id(20)
         if self.object:
-            utils.set_rl_object_id(self.object, self.object_id)
+            utils.set_rl_id(self.object, self.object_id)
             self.object["rl_object_type"] = self.object_type
 
     def validate(self, report=None, split_objects=None):
@@ -1757,6 +1749,174 @@ class CCICExpressionData(bpy.types.PropertyGroup):
     offset_bone_name: bpy.props.StringProperty()
     offset_translation: bpy.props.FloatVectorProperty()
     offset_rotation: bpy.props.FloatVectorProperty()
+# endregion
+
+# region Staging Cache
+class CC3StagingCache(bpy.types.PropertyGroup):
+    object_cache: bpy.props.CollectionProperty(type=CC3ObjectCache)
+    link_id: bpy.props.StringProperty(default="")
+    staging_name: bpy.props.StringProperty(default="")
+    action_options: bpy.props.PointerProperty(type=CCICActionOptions)
+    disabled: bpy.props.BoolProperty(default=False)
+
+    def set_link_id(self, link_id):
+        self.link_id = link_id
+        arm = self.get_armature()
+        utils.set_rl_link_id(arm, link_id)
+
+    def get_generation(self):
+        rob = self.get_rlx_object()
+        return get_rlx_generation(rob)
+
+    def get_link_id(self):
+        if not self.link_id:
+            self.link_id = utils.generate_random_id(20)
+        return self.link_id
+
+    def get_name(self):
+        return self.staging_name
+
+    def set_name(self, name):
+        self.staging_name = name
+
+    def get_rlx_object(self, include_disabled=False):
+        for obj_cache in self.object_cache:
+            obj = obj_cache.get_object()
+            if obj and (include_disabled or not obj_cache.disabled):
+                return obj
+        return None
+
+    def get_primary_object(self, include_disabled=False):
+        return self.get_rlx_object(include_disabled=include_disabled)
+
+    def get_armature(self, include_disabled=False):
+        return None
+
+    def is_avatar(self):
+        return False
+
+    def is_prop(self):
+        return False
+
+    def is_light(self):
+        for obj_cache in self.object_cache:
+            if obj_cache.is_light():
+                return True
+        return False
+
+    def is_camera(self):
+        for obj_cache in self.object_cache:
+            if obj_cache.is_camera():
+                return True
+        return False
+
+    def cache_type(self):
+        if self.is_light():
+            return "LIGHT"
+        else:
+            return "CAMERA"
+
+    def get_object_cache(self, obj, include_disabled=False, by_id=None, strict=False) -> CC3ObjectCache:
+        """Returns the object cache for this object.
+        """
+        if utils.object_exists(obj):
+            # by object
+            if not strict and not by_id:
+                by_id = utils.get_rl_id(obj)
+            for obj_cache in self.object_cache:
+                if include_disabled or not obj_cache.disabled:
+                    cache_object = obj_cache.get_object()
+                    if cache_object and cache_object == obj:
+                        return obj_cache
+            # by id
+            if by_id:
+                for obj_cache in self.object_cache:
+                    if include_disabled or not obj_cache.disabled:
+                        if obj_cache.object_id == by_id:
+                            return obj_cache
+        return None
+
+    def update_object(self, obj):
+        obj_cache: CC3ObjectCache = None
+        for obj_cache in self.object_cache:
+            if ((obj.type == "CAMERA" and obj_cache.is_camera()) or
+                (obj.type == "LIGHT" and obj_cache.is_light())):
+                obj_cache.object = obj
+                self.set_name(obj.name)
+                obj_cache.check_id()
+                return
+        obj_cache = self.add_object_cache(obj)
+        self.set_name(obj.name)
+
+    def remove_object_cache(self, obj):
+        """Removes the object from the object cache.
+
+           Note this will invalidate all current object cache references!
+        """
+        if obj:
+            for obj_cache in self.object_cache:
+                cache_object = obj_cache.get_object()
+                if cache_object and cache_object == obj:
+                    utils.remove_from_collection(self.object_cache, obj_cache)
+                    return
+
+    def add_object_cache(self, obj, copy_from=None, user=False):
+        """Returns the object cache for this object.
+
+        Fetches or creates an object cache for the object. Always returns an object cache collection.
+        """
+
+        obj_cache: CC3ObjectCache = self.get_object_cache(obj)
+        if obj_cache is None:
+            utils.log_info(f"Creating Object Cache for: {obj.name}")
+            obj_cache = self.object_cache.add()
+            obj_cache.object_id = utils.generate_random_id(20)
+            if copy_from:
+                utils.log_info(f"Copying object cache from: {copy_from}")
+                utils.copy_property_group(copy_from, obj_cache)
+                if user:
+                    obj_cache.user_added = True
+                    obj_cache.object_id = utils.generate_random_id(20)
+            obj_cache.set_object(obj)
+            obj_cache.set_object_type("LIGHT" if obj.type == "LIGHT" else "CAMERA")
+            obj_cache.source_name = utils.strip_name(obj.name)
+            obj_cache.check_id()
+        return obj_cache
+
+    def validate(self, report=None):
+        """Checks character object is still valid.
+           Returns True if any objects in the character are still valid"""
+        obj_cache: CC3ObjectCache = None
+        any_valid = False
+        for obj_cache in self.object_cache:
+            obj_valid = obj_cache.validate(report=report)
+            any_valid = any_valid or obj_valid
+        if not any_valid:
+            rep = f"Staging Cache: {self.get_name()} is no longer valid!"
+            utils.log_info(rep)
+            if report is not None:
+                report.append(rep)
+            self.invalidate()
+        return not self.disabled
+
+    def invalidate(self):
+        utils.log_info(f"Invalidating Staging cache: {self.get_name()}")
+        self.disabled = True
+        obj_cache: CC3ObjectCache = None
+        for obj_cache in self.object_cache:
+            obj_cache.invalidate()
+
+    def delete(self):
+        obj_cache: CC3ObjectCache = None
+        for obj_cache in self.object_cache:
+            obj_cache.delete()
+
+    def clean_up(self):
+        obj_cache: CC3ObjectCache = None
+        for obj_cache in self.object_cache:
+            obj_cache.clean_up()
+        utils.log_detail(f"Cleaning up object cache.")
+        clean_collection_property(self.object_cache)
 # endregion
 
 # region CharacterCache
@@ -1934,6 +2094,17 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
         arm = self.get_armature()
         utils.set_rl_link_id(arm, link_id)
 
+    def get_link_id(self):
+        if not self.link_id:
+            self.link_id = utils.generate_random_id(20)
+        return self.link_id
+
+    def get_name(self):
+        return self.character_name
+
+    def set_name(self, name):
+        self.character_name = name
+
     def get_auto_index(self):
         self.auto_index += 1
         return self.auto_index
@@ -1992,7 +2163,6 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
 
     def is_obj(self):
         res = (self.import_flags & 2 > 0)
-        print("IS_OBJ", res)
         return res
 
     def get_character_id(self):
@@ -2059,6 +2229,12 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
             return True
         if self.non_standard_type == "PROP":
             return True
+        return False
+
+    def is_light(self):
+        return False
+
+    def is_camera(self):
         return False
 
     def cache_type(self):
@@ -2330,7 +2506,7 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
         obj_cache = self.get_object_cache(obj)
         arm = self.get_armature()
         for child in arm.children:
-            if obj_cache.object_id == utils.get_rl_object_id(child):
+            if obj_cache.object_id == utils.get_rl_id(child):
                 if "rl_collision_proxy" in child and child["rl_collision_proxy"] == obj.name:
                     return child
         proxy_name = obj.name + ".Collision_Proxy"
@@ -2398,7 +2574,7 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
         if utils.object_exists(obj):
             # by object
             if not strict and not by_id:
-                by_id = utils.get_rl_object_id(obj)
+                by_id = utils.get_rl_id(obj)
             for obj_cache in self.object_cache:
                 if include_disabled or not obj_cache.disabled:
                     cache_object = obj_cache.get_object()
@@ -2427,7 +2603,7 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
     def has_cache_objects(self, objects, include_disabled=False):
         """Returns True if *any* of the objects are actively the object cache.
         """
-        object_ids = [ utils.get_rl_object_id(o) for o in objects ]
+        object_ids = [ utils.get_rl_id(o) for o in objects ]
         for obj_cache in self.object_cache:
             if include_disabled or not obj_cache.disabled:
                 cache_object = obj_cache.get_object()
@@ -2449,11 +2625,11 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
         """Returns True if the object is in the object cache.
         """
         if obj:
-            object_id = utils.get_rl_object_id(obj)
+            object_id = utils.get_rl_id(obj)
             for obj_cache in self.object_cache:
                 if include_disabled or not obj_cache.disabled:
                     cache_object = obj_cache.get_object()
-                    cache_object_id = utils.get_rl_object_id(cache_object)
+                    cache_object_id = utils.get_rl_id(cache_object)
                     if cache_object == obj or cache_object_id == object_id:
                         return True
         return False
@@ -2464,12 +2640,12 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
             obj = obj.get_object()
         if obj:
             split_objects.append(obj)
-            obj_id = utils.get_rl_object_id(obj)
+            obj_id = utils.get_rl_id(obj)
             arm = self.get_armature()
             if arm:
                 for child in arm.children:
                     if child not in split_objects:
-                        child_id = utils.get_rl_object_id(child)
+                        child_id = utils.get_rl_id(child)
                         if child_id == obj_id:
                             split_objects.append(obj)
         return split_objects
@@ -2485,6 +2661,12 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
             pass
         return None
 
+    def get_rlx_object(self, include_disabled=False):
+        return None
+
+    def get_primary_object(self, include_disabled=False):
+        return self.get_armature(include_disabled=include_disabled)
+
     def get_body(self):
         return self.get_object_of_type("BODY")
 
@@ -2498,7 +2680,7 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
                 body_id = obj_cache.object_id
                 chr_objects = self.get_cache_objects()
                 for obj in chr_objects:
-                    if utils.get_rl_object_id(obj) == body_id:
+                    if utils.get_rl_id(obj) == body_id:
                         objects.append(obj)
         return objects
 
@@ -2529,12 +2711,12 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
             for obj_cache in self.object_cache:
                 if not obj_cache.disabled:
                     cache_object = obj_cache.get_object()
-                    if cache_object.type == "ARMATURE":
+                    if cache_object and cache_object.type == "ARMATURE":
                         self.rig_original_rig = cache_object
                         obj_cache.set_object(new_arm)
                         # update the object id
                         obj_cache.object_id = utils.generate_random_id(20)
-                        utils.set_rl_object_id(new_arm, obj_cache.object_id)
+                        utils.set_rl_id(new_arm, obj_cache.object_id)
                         utils.set_rl_link_id(new_arm, self.link_id)
         except:
             pass
@@ -2797,7 +2979,7 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
                 self.link_id = utils.generate_random_id(20)
             utils.set_rl_link_id(rig, self.link_id)
         # if rigified, ensure the face rig type is on the rig
-        if self.rigified:
+        if rig and self.rigified:
             if not utils.get_prop(rig, "rl_face_rig"):
                 bone_collection = rig.data.edit_bones if utils.get_mode() == "EDIT" else rig.pose.bones
                 if "facerig" in bone_collection:
@@ -2936,11 +3118,11 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
 
     def find_object_from_proxy(self, proxy, include_disabled=False):
         if "rl_collision_proxy" in proxy:
-            proxy_object_id = utils.get_rl_object_id(proxy)
+            proxy_object_id = utils.get_rl_id(proxy)
             for obj in self.get_cache_objects():
                 obj_cache = self.get_object_cache(obj)
                 if include_disabled or not obj_cache.disabled:
-                    if utils.get_rl_object_id(obj) == proxy_object_id and obj.name == proxy["rl_collision_proxy"]:
+                    if utils.get_rl_id(obj) == proxy_object_id and obj.name == proxy["rl_collision_proxy"]:
                         return obj
         if proxy.name.endswith(".Collision_Proxy"):
             obj_name = proxy.name[:-16]
@@ -2990,11 +3172,6 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
         else:
             return True
 
-    def get_link_id(self):
-        if not self.link_id:
-            self.link_id = utils.generate_random_id(20)
-        return self.link_id
-
     def validate(self, report=None):
         """Checks character objects and materials are still valid.
            Returns True if any objects in the character are still valid"""
@@ -3009,7 +3186,7 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
         for mat_cache in all_materials_cache:
             mat_valid = mat_cache.validate(report)
         if not any_valid:
-            rep = f"Character Cache: {self.character_name} is no longer valid!"
+            rep = f"Character Cache: {self.get_name()} is no longer valid!"
             utils.log_info(rep)
             if report is not None:
                 report.append(rep)
@@ -3017,7 +3194,7 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
         return not self.disabled
 
     def invalidate(self):
-        utils.log_info(f"Invalidating Character cache: {self.character_name}")
+        utils.log_info(f"Invalidating Character cache: {self.get_name()}")
         self.disabled = True
         obj_cache: CC3ObjectCache
         mat_cache: CC3MaterialCache
@@ -3040,7 +3217,7 @@ class CC3CharacterCache(bpy.types.PropertyGroup):
         for mat_cache in all_materials_cache:
             mat_cache.delete()
         if self.disabled:
-            utils.log_info(f"Deleting Character Meta Objects: {self.character_name}")
+            utils.log_info(f"Deleting Character Meta Objects: {self.get_name()}")
             utils.delete_object_tree(self.rig_meta_rig)
             utils.delete_object_tree(self.arkit_proxy)
             utils.delete_object_tree(self.rig_export_rig)
@@ -3118,6 +3295,7 @@ class CC3ImportProps(bpy.types.PropertyGroup):
     import_file: bpy.props.StringProperty(default="", subtype="FILE_PATH")
 
     import_cache: bpy.props.CollectionProperty(type=CC3CharacterCache)
+    staging_cache: bpy.props.CollectionProperty(type=CC3StagingCache)
 
     dummy_slider: bpy.props.FloatProperty(default=0.5, min=0, max=1)
 
@@ -3381,15 +3559,22 @@ class CC3ImportProps(bpy.types.PropertyGroup):
     action_options: bpy.props.PointerProperty(type=CCICActionOptions)
 
 
-    def add_character_cache(self, copy_from=None):
+    def add_character_cache(self, copy_from=None) -> 'CC3CharacterCache':
         chr_cache = self.import_cache.add()
         if copy_from:
             exclude_list = ["*_material_cache", "object_cache"]
             utils.copy_property_group(copy_from, chr_cache, exclude=exclude_list)
         return chr_cache
 
-    def get_character_cache_from_objects(self, objects, search_materials=False):
-        chr_cache : CC3CharacterCache
+    def add_staging_cache(self, copy_from=None) -> 'CC3StagingCache':
+        rlx_cache = self.staging_cache.add()
+        if copy_from:
+            exclude_list = ["object_cache"]
+            utils.copy_property_group(copy_from, rlx_cache, exclude=exclude_list)
+        return rlx_cache
+
+    def get_character_cache_from_objects(self, objects, search_materials=False) -> 'CC3CharacterCache':
+        chr_cache : CC3CharacterCache = None
 
         if objects:
             for chr_cache in self.import_cache:
@@ -3414,10 +3599,10 @@ class CC3ImportProps(bpy.types.PropertyGroup):
                         return chr_cache
         return None
 
-    def get_character_cache(self, obj, mat, by_id=None):
+    def get_character_cache(self, obj, mat, by_id=None) -> 'CC3CharacterCache':
         if obj:
             if not by_id:
-                by_id = utils.get_rl_object_id(obj)
+                by_id = utils.get_rl_id(obj)
             for chr_cache in self.import_cache:
                 if not chr_cache.disabled:
                     obj_cache = chr_cache.get_object_cache(obj, by_id=by_id)
@@ -3438,6 +3623,21 @@ class CC3ImportProps(bpy.types.PropertyGroup):
                 characters.append(chr_cache)
         return characters
 
+    def get_staging_cache(self, obj, by_id=None, create=False) -> 'CC3StagingCache':
+        if obj:
+            if not by_id:
+                by_id = utils.get_rl_id(obj)
+            for rlx_cache in self.staging_cache:
+                if not rlx_cache.disabled:
+                    obj_cache = rlx_cache.get_object_cache(obj, by_id=by_id)
+                    if obj_cache and not obj_cache.disabled:
+                        return rlx_cache
+        if create:
+            rlx_cache = self.add_staging_cache()
+            rlx_cache.update_object(obj)
+            return rlx_cache
+        return None
+
     def get_avatars(self):
         avatars = []
         chr_cache: CC3CharacterCache
@@ -3456,7 +3656,7 @@ class CC3ImportProps(bpy.types.PropertyGroup):
     def find_character_by_name(self, name):
         if name:
             for chr_cache in self.import_cache:
-                if not chr_cache.disabled and chr_cache.character_name == name:
+                if not chr_cache.disabled and chr_cache.get_name() == name:
                     return chr_cache
         return None
 
@@ -3486,6 +3686,31 @@ class CC3ImportProps(bpy.types.PropertyGroup):
             chr_cache = self.get_character_cache_from_objects(context.selected_objects, False)
 
         return chr_cache
+
+    def ensure_context_object(self, context=None):
+        """Ensure lights and cameras have staging_cache data"""
+        context = vars.get_context(context)
+        obj = context.object
+        if utils.object_exists_is_camera(obj) or utils.object_exists_is_light(obj):
+            if not self.get_staging_cache(obj) and utils.get_rl_link_id(obj):
+                rlx_cache = self.add_staging_cache()
+                rlx_cache.update_object(obj)
+
+    def get_context_staging_cache(self, context=None) -> CC3StagingCache:
+        context = vars.get_context(context)
+        obj = context.object
+        rlx_cache = self.get_staging_cache(obj)
+        return rlx_cache
+
+    def get_context_actor_cache(self, context=None) -> CC3CharacterCache:
+        rlx_cache = self.get_context_staging_cache(context=context)
+        if rlx_cache:
+            return rlx_cache
+        chr_cache = self.get_context_character_cache(context=context)
+        if chr_cache:
+            return chr_cache
+        else:
+            return None
 
     def get_object_cache(self, obj, include_disabled=False):
         if obj:

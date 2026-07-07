@@ -597,7 +597,7 @@ def get_head_body_object(chr_cache):
     if body_cache:
         body_id = body_cache.object_id
         for child in arm.children:
-            if utils.get_rl_object_id(child) == body_id and child not in body_objects:
+            if utils.get_rl_id(child) == body_id and child not in body_objects:
                 body_objects[child] = total_vertex_group_weight(child, head_bones)
     else:
         for child in arm.children:

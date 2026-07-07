@@ -20,7 +20,7 @@ import bpy
 from enum import IntEnum, IntFlag
 
 from . import (rlx, characters, hik, rigging, rigutils, bones, bake, imageutils, jsonutils, materials,
-               facerig, modifiers, wrinkle, drivers, nodeutils, physics,
+               facerig, modifiers, meshutils, wrinkle, drivers, nodeutils, physics,
                rigidbody, colorspace, scene, channel_mixer, shaders,
                basic, lib, cc, utils, vars)
 
@@ -443,10 +443,10 @@ def remap_action_names(arm, objects, actions, source_id, motion_prefix=""):
     utils.log_info(f"Armature: {source_id} => {rig_id}")
 
     # don't change the armature id if it exists
-    rl_arm_id = utils.get_rl_object_id(arm)
-    if not rl_arm_id:
-        rl_arm_id = utils.generate_random_id(20)
-        utils.set_rl_object_id(arm, rl_arm_id)
+    rl_id = utils.get_rl_id(arm)
+    if not rl_id:
+        rl_id = utils.generate_random_id(20)
+        utils.set_rl_id(arm, rl_id)
 
     # find all motions for this armature
     armature_actions = []
@@ -457,13 +457,18 @@ def remap_action_names(arm, objects, actions, source_id, motion_prefix=""):
     for action in actions:
         split = action.name.split("|")
         action_arm_id = split[0]
+        # Blender 5.1.0+ all actions import as slotted and,
+        # action names are *not* prefixed with armature name anymore
+        if utils.B510():
+            slotted_actions.append(action)
+            action_arm_id = source_id
         motion_id = split[-1]
         if action_arm_id == source_id:
             utils.log_info(f"Motion ID: {motion_id}")
             motion_ids.add(motion_id)
             armature_actions.append(action)
             motion_sets[motion_id] = rigutils.generate_motion_set(arm, motion_id,
-                                                                  motion_prefix)
+                                                                       motion_prefix)
 
     # determine how each shape key id relates to each object in the import
     for obj in objects:
@@ -493,16 +498,16 @@ def remap_action_names(arm, objects, actions, source_id, motion_prefix=""):
                 utils.log_info(f"Renaming action: {action.name} to {action_name}")
                 action.name = action_name
                 rigutils.add_motion_set_data(action, set_id, set_generation,
-                                             arm_id=rl_arm_id,
+                                             arm_id=rl_id,
                                              slotted=(action in slotted_actions))
-                armature_actions.append(action)
             else:
                 for obj_id, key_name in key_map.items():
                     if action_key_name == key_name:
                         action_name = rigutils.make_key_action_name(rig_id, motion_id, obj_id, motion_prefix)
                         utils.log_info(f"Renaming action: {action.name} to {action_name}")
                         action.name = action_name
-                        rigutils.add_motion_set_data(action, set_id, set_generation, obj_id=obj_id)
+                        rigutils.add_motion_set_data(action, set_id, set_generation,
+                                                     key_id=obj_id, arm_id=rl_id, slotted=False)
                         shapekey_actions.append(action)
 
     return armature_actions, shapekey_actions
@@ -588,7 +593,7 @@ def process_rl_import(file_path, import_flags, armatures, rl_armatures, cameras,
             chr_cache.import_file = file_path
             chr_cache.import_flags = import_flags
             # display name of character
-            chr_cache.character_name = character_name
+            chr_cache.set_name(character_name)
 
             arm["rl_import_file"] = file_path
             rigutils.fix_cc3_standard_rig(arm)
@@ -607,7 +612,7 @@ def process_rl_import(file_path, import_flags, armatures, rl_armatures, cameras,
 
             # in case of duplicate names: character_name contains the name currently in Blender.
             #                             get_character_id() is the original name.
-            chr_cache.character_name = arm.name
+            chr_cache.set_name(arm.name)
             # add armature to object_cache
             chr_cache.add_object_cache(arm)
             # assign bone collections
@@ -636,13 +641,6 @@ def process_rl_import(file_path, import_flags, armatures, rl_armatures, cameras,
                     chr_cache.add_object_cache(obj)
                     character_meshes.append(obj)
 
-            # clear custom normals option
-            if prefs.import_reset_custom_normals:
-                for obj in character_meshes:
-                    bpy.context.view_layer.objects.active = obj
-                    bpy.ops.mesh.customdata_custom_splitnormals_clear()
-                    bpy.context.view_layer.objects.active = None
-
             # remame actions
             utils.log_info("Renaming actions:")
             utils.log_indent()
@@ -652,7 +650,7 @@ def process_rl_import(file_path, import_flags, armatures, rl_armatures, cameras,
 
             # determine character generation
             chr_cache.generation = detect_generation(chr_cache, arm, json_data, chr_cache.get_character_id())
-            utils.log_info("Generation: " + chr_cache.character_name + " (" + chr_cache.generation + ")")
+            utils.log_info(f"Generation: {chr_cache.get_name()} ({chr_cache.generation})")
             arm["rl_generation"] = chr_cache.generation
 
             # cache materials
@@ -660,6 +658,23 @@ def process_rl_import(file_path, import_flags, armatures, rl_armatures, cameras,
                 if obj_cache.is_mesh():
                     obj = obj_cache.get_object()
                     cache_object_materials(chr_cache, obj, chr_json, processed)
+
+            # clear custom normals option
+            for obj_cache in chr_cache.object_cache:
+                if obj_cache.is_mesh():
+                    obj = obj_cache.get_object()
+                    fix_5_1_normals = (utils.B510() and prefs.import_fix_5_1_normals and
+                                       utils.object_has_shape_keys(obj) and
+                                       obj.data.has_custom_normals)
+                    if prefs.import_reset_custom_normals or fix_5_1_normals:
+                        utils.log_info(f"Cleaing custom normals on: {obj.name}")
+                        bpy.context.view_layer.objects.active = obj
+                        bpy.ops.mesh.customdata_custom_splitnormals_clear()
+                        bpy.context.view_layer.objects.active = None
+                        if fix_5_1_normals:
+                            meshutils.set_shading(obj, True)
+
+
 
             shaders.init_character_property_defaults(chr_cache, chr_json)
             basic.init_basic_default(chr_cache)
@@ -709,7 +724,7 @@ def process_rl_import(file_path, import_flags, armatures, rl_armatures, cameras,
             chr_cache.import_file = file_path
             chr_cache.import_flags = import_flags
             # display name of character
-            chr_cache.character_name = character_name
+            chr_cache.set_name(character_name)
             chr_id = chr_cache.get_character_id()
 
             # link_id
@@ -735,7 +750,7 @@ def process_rl_import(file_path, import_flags, armatures, rl_armatures, cameras,
 
             # in case of duplicate names: character_name contains the name currently in Blender.
             #                             import_name contains the original name.
-            chr_cache.character_name = arm.name
+            chr_cache.set_name(arm.name)
             # add armature to object_cache
             chr_cache.add_object_cache(arm)
 
@@ -828,7 +843,7 @@ def process_rl_import(file_path, import_flags, armatures, rl_armatures, cameras,
         chr_cache.import_file = file_path
         chr_cache.import_flags = import_flags
         # display name of character
-        chr_cache.character_name = character_name
+        chr_cache.set_name(character_name)
 
         # link_id (OBJ exports don't have json)
         chr_cache.set_link_id(link_id)
@@ -1072,22 +1087,34 @@ class CC3Import(bpy.types.Operator):
                 # But the mesh is really all we need, so just keep going...
                 if colorspace.is_aces():
                     try:
-                        bpy.ops.import_scene.fbx(filepath=filepath,
-                                                 directory=dir,
-                                                 use_anim=import_anim,
-                                                 use_image_search=False,
-                                                 use_custom_normals=True,
-                                                 anim_offset=self.start_frame)
+                        bpy.ops.wm.fbx_import(filepath=filepath,
+                                              directory=dir,
+                                              use_anim=import_anim,
+                                              use_custom_normals=not prefs.import_reset_custom_normals,
+                                              mtl_name_collision_mode="MAKE_UNIQUE",
+                                              anim_offset=self.start_frame)
+                        #bpy.ops.import_scene.fbx(filepath=filepath,
+                        #                         directory=dir,
+                        #                         use_anim=import_anim,
+                        #                         use_image_search=False,
+                        #                         use_custom_normals=True,
+                        #                         anim_offset=self.start_frame)
                     except:
                         utils.log_warn("FBX Import Error: This may be due to color space differences. Continuing...")
                 else:
                     try:
-                        bpy.ops.import_scene.fbx(filepath=filepath,
-                                                 directory=dir,
-                                                 use_anim=import_anim,
-                                                 use_image_search=False,
-                                                 use_custom_normals=True,
-                                                 anim_offset=self.start_frame)
+                        bpy.ops.wm.fbx_import(filepath=filepath,
+                                              directory=dir,
+                                              use_anim=import_anim,
+                                              use_custom_normals=not prefs.import_reset_custom_normals,
+                                              mtl_name_collision_mode="MAKE_UNIQUE",
+                                              anim_offset=self.start_frame)
+                        #bpy.ops.import_scene.fbx(filepath=filepath,
+                        #                         directory=dir,
+                        #                         use_anim=import_anim,
+                        #                         use_image_search=False,
+                        #                         use_custom_normals=True,
+                        #                         anim_offset=self.start_frame)
                     except:
                         utils.log_error("FBX Import Error due to bad mesh?")
 
@@ -1153,10 +1180,7 @@ class CC3Import(bpy.types.Operator):
                 # invoke the obj importer
                 old_objects = utils.get_set(bpy.data.objects)
                 old_images = utils.get_set(bpy.data.images)
-                if ImportFlags.RL in import_flags and param == "IMPORT_MORPH":
-                    obj_import(filepath, split_objects=False, split_groups=False, vgroups=True)
-                else:
-                    obj_import(filepath, split_objects=True, split_groups=True, vgroups=False)
+                obj_import(filepath, split_objects=True, split_groups=True, vgroups=False)
 
                 imported = utils.get_set_new(bpy.data.objects, old_objects)
                 self.imported_images = utils.get_set_new(bpy.data.images, old_images)
@@ -1966,11 +1990,17 @@ class CC3ImportAnimations(bpy.types.Operator):
         old_actions = utils.get_set(bpy.data.actions)
         old_materials = utils.get_set(bpy.data.materials)
 
-        bpy.ops.import_scene.fbx(filepath=path,
-                                 directory=dir,
-                                 use_anim=True,
-                                 use_image_search=False,
-                                 anim_offset=self.start_frame)
+        bpy.ops.wm.fbx_import(filepath=path,
+                              directory=dir,
+                              use_anim=True,
+                              use_custom_normals=False,
+                              mtl_name_collision_mode="MAKE_UNIQUE",
+                              anim_offset=self.start_frame)
+        #bpy.ops.import_scene.fbx(filepath=path,
+        #                         directory=dir,
+        #                         use_anim=True,
+        #                         use_image_search=False,
+        #                         anim_offset=self.start_frame)
 
         objects = utils.get_set_new(bpy.data.objects, old_objects)
         actions = utils.get_set_new(bpy.data.actions, old_actions)

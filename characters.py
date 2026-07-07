@@ -89,8 +89,8 @@ def duplicate_character(chr_cache):
         new_id = utils.generate_random_id(20)
         obj_cache.object_id = new_id
         for obj in objects:
-            if utils.get_rl_object_id(obj) == old_id:
-                utils.set_rl_object_id(obj, new_id)
+            if utils.get_rl_id(obj) == old_id:
+                utils.set_rl_id(obj, new_id)
                 obj_cache.object = obj
                 if obj.type == "ARMATURE":
                     action, slot = utils.safe_get_action_slot(old_obj)
@@ -112,9 +112,9 @@ def duplicate_character(chr_cache):
                         mat_cache.material = mat
 
     chr_rig = utils.get_armature_from_objects(objects)
-    character_name = utils.unique_object_name(utils.un_suffix_name(old_cache.character_name))
+    character_name = utils.unique_object_name(utils.un_suffix_name(old_cache.get_name()))
     utils.log_info(f"Using character name: {character_name}")
-    chr_cache.character_name = character_name
+    chr_cache.set_name(character_name)
     if chr_cache.rigified:
         rig_name = character_name + "_Rigify"
         chr_rig["rig_id"] = utils.generate_random_id(20)
@@ -344,7 +344,7 @@ def convert_generic_to_non_standard(objects, file_path=None, type_override=None,
     chr_rig.data.name = chr_name
     chr_cache = props.import_cache.add()
     chr_cache.import_file = ""
-    chr_cache.character_name = chr_name
+    chr_cache.set_name(chr_name)
     chr_cache.import_embedded = False
     chr_cache.generation = "Unknown"
     chr_cache.non_standard_type = chr_type
@@ -416,7 +416,7 @@ def link_or_append_rl_character(op, context, blend_file, link=False):
 
         for src_cache in src_props.import_cache:
 
-            character_name = src_cache.character_name
+            character_name = src_cache.get_name()
             import_file = src_cache.import_file
             chr_rig = src_cache.get_armature()
             chr_objects = src_cache.get_all_objects(include_armature=False,
@@ -575,6 +575,7 @@ def reconnect_rl_character_to_fbx(chr_rig, fbx_path):
 
     rig_name = chr_rig.name
     character_name = rig_name
+    is_rigify = rigutils.is_rigify_armature(chr_rig)
     if "_Rigify" in character_name:
         character_name = character_name.replace("_Rigify", "")
 
@@ -592,11 +593,11 @@ def reconnect_rl_character_to_fbx(chr_rig, fbx_path):
             meta_rig = bpy.data.objects[meta_rig_name]
 
     chr_cache.import_file = fbx_path
-    chr_cache.character_name = character_name
+    chr_cache.set_name(character_name)
     chr_cache.import_embedded = False
     chr_cache.generation = generation
     chr_cache.non_standard_type = "HUMANOID"
-    chr_cache.rigified = True
+    chr_cache.rigified = is_rigify
     chr_cache.rig_meta_rig = meta_rig
     chr_cache.rigified_full_face_rig = character_has_bones(chr_rig, ["nose", "lip.T", "lip.B"])
     chr_cache.add_object_cache(chr_rig)
@@ -642,14 +643,14 @@ def reconnect_rl_character_to_blend(chr_rig, blend_file):
             import_file = chr_rig["rl_import_file"]
             for chr_cache in src_props.import_cache:
                 if chr_cache.import_file == import_file:
-                    utils.log_info(f"Found matching source character fbx: {chr_cache.character_name}")
+                    utils.log_info(f"Found matching source character fbx: {chr_cache.get_name()}")
                     src_cache = chr_cache
                     break
 
         # try to find the source cache by character name
         for chr_cache in src_props.import_cache:
-            if chr_cache.character_name == character_name:
-                utils.log_info(f"Found matching source character name: {chr_cache.character_name}")
+            if chr_cache.get_name() == character_name:
+                utils.log_info(f"Found matching source character name: {chr_cache.get_name()}")
                 src_cache = chr_cache
                 break
 
@@ -683,7 +684,7 @@ def rebuild_character_cache(chr_cache, chr_rig, objects, src_cache=None):
     processed = []
     defaults = []
     for obj in objects:
-        obj_id = utils.get_rl_object_id(obj)
+        obj_id = utils.get_rl_id(obj)
         if utils.object_exists_is_mesh(obj) and obj not in processed:
             processed.append(obj)
             src_obj_cache = src_cache.get_object_cache(obj, by_id=obj_id) if src_cache else None
@@ -1826,7 +1827,7 @@ def remove_all_empty_shapekeys_vertex_groups(chr_cache):
     key_count = 0
     group_count = 0
     if chr_cache:
-        utils.log_info(f"Cleaning empty shape keys and vertex groups in character: {chr_cache.character_name}")
+        utils.log_info(f"Cleaning empty shape keys and vertex groups in character: {chr_cache.get_name()}")
         objects = chr_cache.get_cache_objects()
         body_objects = chr_cache.get_objects_of_type("BODY")
         arm = chr_cache.get_armature()
@@ -2350,12 +2351,12 @@ class CCICCharacterRename(bpy.types.Operator):
                     meta_rig.data.name = metarig_name
                 rig.name = rigify_name
                 rig.data.name = rigify_name
-                chr_cache.character_name = source_name
+                chr_cache.set_name(source_name)
             else:
                 rig_name = utils.unique_object_name(self.name, rig)
                 rig.name = rig_name
                 rig.data.name = rig_name
-                chr_cache.character_name = rig_name
+                chr_cache.set_name(rig_name)
         if chr_cache.is_non_standard():
             chr_cache.non_standard_type = self.non_standard_type
         return {"FINISHED"}
@@ -2364,7 +2365,7 @@ class CCICCharacterRename(bpy.types.Operator):
         props = vars.props()
         prefs = vars.prefs()
         chr_cache = props.get_context_character_cache(context)
-        self.name = chr_cache.character_name
+        self.name = chr_cache.get_name()
         self.non_standard_type = chr_cache.non_standard_type
         return context.window_manager.invoke_props_dialog(self)
 

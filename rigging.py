@@ -2101,7 +2101,7 @@ def generate_retargeting_rig(chr_cache, source_rig, rigify_rig, retarget_data, t
     utils.unhide(rigify_rig)
     rigify_rig.data.pose_position = "POSE"
 
-    retarget_rig = bpy.data.objects.new(chr_cache.character_name + "_Retarget", bpy.data.armatures.new(chr_cache.character_name + "_Retarget"))
+    retarget_rig = bpy.data.objects.new(chr_cache.get_name() + "_Retarget", bpy.data.armatures.new(chr_cache.get_name() + "_Retarget"))
     bpy.context.collection.objects.link(retarget_rig)
     if retarget_rig:
 
@@ -2762,7 +2762,7 @@ def adv_retarget_pair_rigs(op, chr_cache, source_rig=None, source_action=None, t
     #    if op: op.report({'ERROR'}, "No Source Action!")
     #    utils.log_error("No Source Action!")
     #    return None
-    if source_action and not check_armature_action(source_rig, source_action, fix_rotation_mode=True):
+    if source_rig and source_action and not check_armature_action(source_rig, source_action, fix_rotation_mode=True):
         if op: op.report({'ERROR'}, "Source Action does not match Source Armature!")
         utils.log_error("Source Action does not match Source Armature!")
         return None
@@ -2847,25 +2847,28 @@ def full_retarget_source_rig_action(op, chr_cache, src_rig=None, src_action=None
 
     if rigify_rig and src_rig and src_action:
         armature_action = adv_bake_retarget_to_rigify(op, chr_cache, src_rig, src_action)
-        utils.log_info(f"Armature action retargetted to: {armature_action.name}")
-        # assign names and set data
-        rig_id = rigutils.get_rig_id(rigify_rig)
-        rl_arm_id = utils.get_rl_object_id(rigify_rig)
-        motion_prefix = rigutils.get_motion_prefix(src_action)
-        custom_prefix = props.rigify_retarget_motion_prefix.strip()
-        if use_ui_options and custom_prefix:
-            motion_prefix = custom_prefix
-        motion_id = rigutils.get_motion_id(src_action, "Retarget")
-        motion_id = rigutils.get_unique_set_motion_id(rig_id, motion_id, motion_prefix, slotted=use_slotted)
-        set_id, set_generation = rigutils.generate_motion_set(rigify_rig, motion_id, motion_prefix)
-        rigutils.set_armature_action_name(armature_action, rig_id, motion_id, motion_prefix, slotted=use_slotted)
-        rigutils.add_motion_set_data(armature_action, set_id, set_generation, arm_id=rl_arm_id, slotted=use_slotted)
-        armature_action.use_fake_user = props.rigify_retarget_use_fake_user if use_ui_options else True
-        utils.log_info(f"Renaming armature action to: {armature_action.name}")
-        use_fake_user = props.rigify_retarget_use_fake_user if use_ui_options else True
-        rigutils.copy_action_shape_key_channels(rigify_rig, src_action, armature_action, fake_user=use_fake_user)
-        rigutils.load_motion_set(rigify_rig, armature_action)
-        rigutils.update_motion_set_index(armature_action)
+        if armature_action:
+            utils.log_info(f"Armature action retargetted to: {armature_action.name}")
+            # assign names and set data
+            rig_id = rigutils.get_rig_id(rigify_rig)
+            rl_id = utils.get_rl_id(rigify_rig)
+            motion_prefix = rigutils.get_motion_prefix(src_action)
+            custom_prefix = props.rigify_retarget_motion_prefix.strip()
+            if use_ui_options and custom_prefix:
+                motion_prefix = custom_prefix
+            motion_id = rigutils.get_motion_id(src_action, "Retarget")
+            motion_id = rigutils.get_unique_set_motion_id(rig_id, motion_id, motion_prefix, slotted=use_slotted, rlob=rigify_rig)
+            set_id, set_generation = rigutils.generate_motion_set(rigify_rig, motion_id, motion_prefix)
+            rigutils.set_armature_action_name(armature_action, rig_id, motion_id, motion_prefix, slotted=use_slotted)
+            rigutils.add_motion_set_data(armature_action, set_id, set_generation, arm_id=rl_id, slotted=use_slotted)
+            armature_action.use_fake_user = props.rigify_retarget_use_fake_user if use_ui_options else True
+            utils.log_info(f"Renaming armature action to: {armature_action.name}")
+            use_fake_user = props.rigify_retarget_use_fake_user if use_ui_options else True
+            rigutils.copy_action_shape_key_channels(rigify_rig, src_action, armature_action, fake_user=use_fake_user)
+            rigutils.load_motion_set(rigify_rig, armature_action)
+            rigutils.update_motion_set_index(armature_action)
+        else:
+            utils.log_error(f"Unable to bake retargetted action: {src_rig} / {src_action}")
 
 
 FK_BONE_GROUPS = ["FK", "Special", "Tweak", "Extra", "Root", "Face"]
@@ -3165,8 +3168,8 @@ def generate_export_rig(chr_cache, use_t_pose=False, t_pose_action=None,
         EXPORT_RIG = rigify_mapping_data.METARIG_EXPORT_RIG
 
     if export_rig:
-        utils.force_object_name(export_rig, chr_cache.character_name + "_Export")
-        utils.force_armature_name(export_rig.data, chr_cache.character_name + "_Export")
+        utils.force_object_name(export_rig, chr_cache.get_name() + "_Export")
+        utils.force_armature_name(export_rig.data, chr_cache.get_name() + "_Export")
     else:
         return None
 
@@ -3693,8 +3696,8 @@ def bake_rig_animation(chr_cache, rig, source_rig, source_action,
 
     set_id = rigutils.generate_set_id()
     rig_id = rigutils.get_rig_id(rig)
-    arm_id = rigutils.get_armature_id(rig)
-    motion_id = rigutils.get_unique_set_motion_id(rig_id, motion_id, motion_prefix)
+    rl_id = rigutils.get_armature_id(rig)
+    motion_id = rigutils.get_unique_set_motion_id(rig_id, motion_id, motion_prefix, rlob=rig)
     is_slotted = prefs.use_action_slots()
 
     if utils.try_select_object(rig, True) and utils.set_active_object(rig):
@@ -3747,14 +3750,14 @@ def bake_rig_animation(chr_cache, rig, source_rig, source_action,
         # armature action
         baked_action = utils.safe_get_action(rig)
         if baked_action:
-            rigutils.add_motion_set_data(baked_action, set_id, "Rigify+", arm_id=arm_id, slotted=is_slotted)
+            rigutils.add_motion_set_data(baked_action, set_id, "Rigify+", arm_id=rl_id, slotted=is_slotted)
             baked_action.name = armature_action_name
             baked_action.use_fake_user = True
             armature_action = baked_action
             utils.log_info(f"Baked armature action: {baked_action.name}")
         for obj_id, key_action in shape_key_actions.items():
             rigutils.set_key_action_name(key_action, rig_id, motion_id, obj_id, motion_prefix)
-            rigutils.add_motion_set_data(baked_action, set_id, "Rigify+", obj_id=obj_id, arm_id=arm_id, slotted=is_slotted)
+            rigutils.add_motion_set_data(baked_action, set_id, "Rigify+", key_id=obj_id, arm_id=rl_id, slotted=is_slotted)
             utils.log_info(f"Baked key action: {key_action.name}")
 
         # restore view layers
@@ -3891,7 +3894,7 @@ def check_armature_action(rig, action, fix_rotation_mode=True):
                     elif data_path.endswith("rotation_axis_angle") and pose_bone.rotation_mode != "AXIS_ANGLE":
                         pose_bone.rotation_mode = "AXIS_ANGLE"
                 matching += 1
-    if total == 0 or matching == 0:
+    if total == 0:
         return False
     return matching > 0
 

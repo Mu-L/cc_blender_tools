@@ -12,7 +12,7 @@ def get_data_group():
 
 def get_node_id(chr_cache, id):
     if id:
-        chr_id = "Global" if chr_cache is None else chr_cache.character_name
+        chr_id = "Global" if chr_cache is None else chr_cache.get_name()
         return f"RL_{chr_id}_{id}"
     return ""
 

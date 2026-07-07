@@ -909,12 +909,14 @@ def find_transform_var_def(var_defs, source_obj, transform_prop, space="LOCAL_SP
 
 def make_shape_key_var_def(var_name, source_obj, key_name):
     key = get_shape_key(source_obj, key_name)
-    data_path = "shape_keys." + key.path_from_id("value")
-    var_def = [var_name,
-               "SINGLE_PROP",
-               source_obj.data,
-               data_path]
-    return var_def
+    if key:
+        data_path = "shape_keys." + key.path_from_id("value")
+        var_def = [var_name,
+                "SINGLE_PROP",
+                source_obj.data,
+                data_path]
+        return var_def
+    return None
 
 
 def find_shape_key_var_def(var_defs, source_obj, key_name):

@@ -2900,6 +2900,9 @@ def adv_bake_retarget_to_rigify(op, chr_cache, source_rig, source_action):
 
     rigify_rig = chr_cache.get_armature()
 
+    # make sure preview range is off
+    bpy.context.scene.use_preview_range = False
+
     # generate (or re-use) retargeting rig
     retarget_rig = adv_retarget_pair_rigs(op, chr_cache, source_rig, source_action)
     temp_action, temp_slot = utils.safe_get_action_slot(retarget_rig)

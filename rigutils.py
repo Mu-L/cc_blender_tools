@@ -793,7 +793,7 @@ def update_motion_set_index(action):
     props.action_set_list_index = utils.index_in_collection(action, bpy.data.actions)
 
 
-def load_motion_set(rig, action, move=False, temp=None):
+def load_motion_set(rig, action, move=False, temp=None, force=None):
     prefs = vars.prefs()
     if action:
         utils.log_info(f"Load Motion Set: {action.name} {'Move ' if move else ''}{'Temp ' if temp else ''}")
@@ -805,9 +805,9 @@ def load_motion_set(rig, action, move=False, temp=None):
     if action:
         utils.log_indent()
         if prefs.use_action_slots():
-            arm_action = load_slotted_action(rig, action, move=move, temp=temp)
+            arm_action = load_slotted_action(rig, action, move=move, temp=temp, force=force)
         else:
-            arm_action = load_separate_actions(rig, action, move=move, temp=temp)
+            arm_action = load_separate_actions(rig, action, move=move, temp=temp, force=force)
         if arm_action:
             update_motion_set_index(arm_action)
         utils.log_recess()
@@ -1331,7 +1331,7 @@ def duplicate_motion_set(source_action):
                 is_slotted = action_type_id == "SLOTTED"
                 is_light = action_type_id == "LIGHT"
                 is_camera = action_type_id == "CAMERA"
-                is_rlx = action_type_id == "RLX" or is_light or is_camera
+                is_rlx = action_type_id == "RLX" or rlx_id is not None
                 rlx_id = rlob_id if is_rlx else None
                 arm_id = None if is_rlx else rlob_id
                 duplicate_action = action.copy()
@@ -1348,7 +1348,13 @@ def duplicate_motion_set(source_action):
     else:
         utils.log_error(f"Duplicate main action not found!")
     utils.update_ui(all=True)
-    return new_action
+    #duplicate_set = []
+    #if new_action:
+    #    duplicate_set.append(new_action)
+    #for action in duplicates:
+    #    if action not in duplicate_set:
+    #        duplicate_set.append(action)
+    return new_action #, duplicate_set
 
 
 def get_new_motion_set_action_name(action_type, set_id, prefix, rig_id, motion_id, rlob=None):
@@ -2010,6 +2016,7 @@ def bake_rig_action(src_rig, dst_rig, reuse_action=False):
     if utils.try_select_object(dst_rig, True) and utils.set_active_object(dst_rig):
         utils.log_info(f"Baking action: {src_action.name} to {dst_rig.name}")
         # frame range
+        bpy.context.scene.use_preview_range = False
         if src_action:
             start_frame = int(src_action.frame_range[0])
             end_frame = int(src_action.frame_range[1])
@@ -2803,6 +2810,9 @@ def fetch_action_curve_database(source_action):
             # build database of fcurves by slot
             for channel in channelbags:
                 if channel in done_channelbags: continue
+                if channel.slot == None:
+                    utils.log_info(f"No slot in channel {channel}")
+                    continue
                 done_channelbags.append(channel)
                 slot = channel.slot
                 is_source_channel = False
@@ -2871,7 +2881,7 @@ def get_channelbag_group(channelbag, group_name):
     return group
 
 
-def load_slotted_action(rig, action: bpy.types.Action, move=False, temp=None):
+def load_slotted_action(rig, action: bpy.types.Action, move=False, temp=None, force=False):
     prefs = vars.prefs()
 
     # determine motion set info
@@ -2886,7 +2896,7 @@ def load_slotted_action(rig, action: bpy.types.Action, move=False, temp=None):
     use_fake_user = action.use_fake_user
 
     # if loading onto a different rig_id, we want to create a new motion set ...
-    use_new_motion_set = ((rl_id or src_rl_id) and rl_id != src_rl_id) or temp or move
+    use_new_motion_set = not force and (((rl_id or src_rl_id) and rl_id != src_rl_id) or temp or move)
     if temp:
         motion_prefix = "TEMP"
         motion_id = temp
@@ -2912,12 +2922,19 @@ def load_slotted_action(rig, action: bpy.types.Action, move=False, temp=None):
             utils.force_action_name(action, action_name)
 
         # add motion set data
-        add_motion_set_data(action, set_id, set_generation, arm_id=rl_id, slotted=True)
+        arm_id = rl_id if rig.type == "ARMATURE" else None
+        rlx_id = None if rig.type == "ARMATURE" else rl_id
+        add_motion_set_data(action, set_id, set_generation, arm_id=arm_id, rlx_id=rlx_id, slotted=True)
         action.use_fake_user = use_fake_user
 
         # if this is a temporary action, store the action it replaced
         if temp:
             action["rl_temp_action"] = old_action.name if old_action else ""
+    elif force:
+        # add motion set data
+        arm_id = rl_id if rig.type == "ARMATURE" else None
+        rlx_id = None if rig.type == "ARMATURE" else rl_id
+        add_motion_set_data(action, set_id, set_generation, arm_id=arm_id, rlx_id=rlx_id, slotted=True)
     else:
         action: bpy.types.Action = database["source_action"]
 
@@ -3218,7 +3235,7 @@ def load_slotted_action(rig, action: bpy.types.Action, move=False, temp=None):
     return action
 
 
-def load_separate_actions(rig: bpy.types.Object, action: bpy.types.Action, move=False, temp=None):
+def load_separate_actions(rig: bpy.types.Object, action: bpy.types.Action, move=False, temp=None, force=False):
     prefs = vars.prefs()
 
     # determine motion set info
@@ -3233,7 +3250,7 @@ def load_separate_actions(rig: bpy.types.Object, action: bpy.types.Action, move=
     use_fake_user = action.use_fake_user
 
     # if loading onto a different rig_id, we want to create a new motion set ...
-    use_new_motion_set = ((rl_id or src_rl_id) and rl_id != src_rl_id) or temp or move
+    use_new_motion_set = not force and (((rl_id or src_rl_id) and rl_id != src_rl_id) or temp or move)
     if temp:
         motion_prefix = "TEMP"
         motion_id = temp
@@ -3500,8 +3517,7 @@ def load_separate_actions(rig: bpy.types.Object, action: bpy.types.Action, move=
 
             # add slot and motion set data
             key_slot, key_channel = add_action_slot_channelbag(key_action, "Unused Keys", "KEY", reuse=True, clear=True)
-            add_motion_set_data(key_action, set_id, set_generation,
-                                key_id="UNUSED", slotted=False)
+            add_motion_set_data(key_action, set_id, set_generation, key_id="UNUSED", arm_id=rl_id, slotted=False)
             key_action.use_fake_user = use_fake_user
 
             # if this is a temporary action, store the action it replaced
@@ -4974,7 +4990,7 @@ def blend_data_curves(motion_channel, stored_channel,
             if motion_data_curve and motion_data_curve in processed_fcurves: continue
             processed_fcurves.append(motion_data_curve)
 
-        utils.log_detail(f"Blending motion data: {data_path} {from_frame}-{to_frame}")
+        utils.log_info(f"Blending motion data: {data_path} {from_frame}-{to_frame}")
 
         # go through motion bone transform fcurves and build a list of discrete frames
         frames = base_frames.copy()
@@ -6311,12 +6327,14 @@ class CCICMotionBlend(bpy.types.Operator):
                     set_id, set_generation, action_type_id, key_object = get_motion_set_ids(duplicate_motion)
                     rig_id = get_rig_id(actor_obj)
                     rename_motion_set(action_type_id, set_id, opts.motion_prefix, rig_id, opts.motion_id)
+                    # TODO if the target motion is not of this rig id, load_motion_set will make a new motion ...
                     if current_motion != target_motion:
                         load_motion_set(actor_obj, target_motion)
                     # store target motion
                     action_store_id = props.store_actions(actor_obj)
                     # load the source motion
-                    load_motion_set(actor_obj, duplicate_motion)
+                    # TODO likewise with the duplicate if the source motion is not of this rig id ...
+                    load_motion_set(actor_obj, duplicate_motion, force=True)
                     # shift motion frames based on frame mode option
                     if opts.frame_mode == "START":
                         shift_motion_frames(duplicate_motion, 1)
@@ -6383,8 +6401,6 @@ class CCICMotionPrefs(bpy.types.Operator):
         layout = self.layout
         column = layout.column()
 
-        print("DRAW")
-
         # prefs
         column.label(text="Preferences:")
         row = column.row()
@@ -6402,7 +6418,6 @@ class CCICMotionPrefs(bpy.types.Operator):
         return {'FINISHED'}
 
     def invoke(self, context, event):
-        print("INVOKE")
         return context.window_manager.invoke_props_dialog(self, width=300)
 
     @classmethod

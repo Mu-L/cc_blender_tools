@@ -4268,7 +4268,8 @@ def copy_channels_to_rig_motion(rig, obj, slot_type, src_action, src_slot, dst_a
     return dst_action, dst_slot
 
 
-def finalize_rlx_import(rlx_cache, obj, actions, action_store_id, frame_start=None, frame_end=None):
+def finalize_rlx_import(rlx_cache, obj, actions, action_store_id, frame_start=None, frame_end=None, overwrite=False):
+    """TODO can this be merged with finalize_motion_import"""
     props = vars.props()
 
     motion_action = actions[0] if actions else None
@@ -4297,7 +4298,7 @@ def finalize_rlx_import(rlx_cache, obj, actions, action_store_id, frame_start=No
         stored_key_channels = props.fetch_stored_key_channels(action_store_id)
         stored_data_channel = props.fetch_stored_data_channel(action_store_id)
         opts, blend_in_data, blend_out_data, use_masked = get_import_opts(rlx_cache)
-        if opts.relative_root or opts.current_root or opts.use_blend or use_masked:
+        if opts.relative_root or opts.current_root or opts.use_blend or use_masked or overwrite:
             resample_blend(rlx_cache, obj,
                            motion_rig_channel, motion_key_channels, motion_data_channel,
                            stored_rig_channel, stored_key_channels, stored_data_channel,
@@ -4306,15 +4307,23 @@ def finalize_rlx_import(rlx_cache, obj, actions, action_store_id, frame_start=No
                            relative_root=opts.relative_root,
                            current_root=opts.current_root,
                            use_blend=opts.use_blend,
+                           overwrite=overwrite,
                            blend_in_frames=opts.blend_in_frames,
                            blend_out_frames=opts.blend_out_frames,
                            blend_in_data=blend_in_data,
                            blend_out_data=blend_out_data,
                            overall_strength=opts.blend_strength)
 
-        # now decide what to do with the actions based on the action_mode and frame_mode
-        # add new, do nothing else
-        utils.log_info(f"Loaded new motion set: {motion_action.name}")
+        if overwrite:
+            stored_rig_action = props.fetch_stored_rig_action(action_store_id)
+            # reload target (stored) motion set
+            load_motion_set(obj, stored_rig_action)
+            # delete the source motion set
+            delete_motion_set(motion_action)
+            utils.log_info(f"Re-Loaded target motion set: {stored_rig_action.name}")
+        else:
+            # Do nothing else
+            utils.log_info(f"Loaded new motion set: {motion_action.name}")
 
         #if action_mode == "BLEND":
         #    old_action = stored_actions[0]
@@ -4337,7 +4346,7 @@ def get_import_opts(chr_rlx_cache):
 
 
 def finalize_motion_import(chr_cache, rig, motion_rig_action, action_store_id,
-                           frame_start=None, frame_end=None):
+                           frame_start=None, frame_end=None, overwrite=False):
     props = vars.props()
     motion_start_frame, motion_end_frame = get_motion_set_frame_range(motion_rig_action)
     if frame_start is None:
@@ -4367,7 +4376,7 @@ def finalize_motion_import(chr_cache, rig, motion_rig_action, action_store_id,
         #masked_bones: list = []
         #mask_bones(rig, motion_rig_action, motion_rig_slot, masked_bones)
         opts, blend_in_data, blend_out_data, use_masked = get_import_opts(chr_cache)
-        if opts.relative_root or opts.current_root or opts.use_blend or use_masked:
+        if opts.relative_root or opts.current_root or opts.use_blend or use_masked or overwrite:
             resample_blend(chr_cache, rig,
                            motion_rig_channel, motion_key_channels, motion_data_channel,
                            stored_rig_channel, stored_key_channels, stored_data_channel,
@@ -4376,14 +4385,23 @@ def finalize_motion_import(chr_cache, rig, motion_rig_action, action_store_id,
                            relative_root=opts.relative_root,
                            current_root=opts.current_root,
                            use_blend=opts.use_blend,
+                           overwrite=overwrite,
                            blend_in_frames=opts.blend_in_frames,
                            blend_out_frames=opts.blend_out_frames,
                            blend_in_data=blend_in_data,
                            blend_out_data=blend_out_data,
                            overall_strength=opts.blend_strength)
 
-        # already loaded, do nothing else
-        utils.log_info(f"Loaded new motion set: {motion_rig_action.name} / ({set_id})")
+        if overwrite:
+            stored_rig_action = props.fetch_stored_rig_action(action_store_id)
+            # reload target (stored) motion set
+            load_motion_set(rig, stored_rig_action)
+            # delete the source motion set
+            delete_motion_set(motion_rig_action)
+            utils.log_info(f"Re-Loaded target motion set: {stored_rig_action.name}")
+        else:
+            # already loaded, do nothing else
+            utils.log_info(f"Loaded new motion set: {motion_rig_action.name} / ({set_id})")
 
         #if action_mode == "BLEND":
         #    old_action = stored_actions[0]
@@ -4539,6 +4557,7 @@ def resample_blend(chr_rlx_cache, rig,
                    key_names=None,
                    data_paths=None,
                    use_blend=False,
+                   overwrite=False,
                    blend_in_frames=0,
                    blend_out_frames=0,
                    blend_in_data=None,
@@ -4567,6 +4586,8 @@ def resample_blend(chr_rlx_cache, rig,
         ...
 
     overall_strength = overall_strength if use_blend else 1.0
+    blend_in_frames = blend_in_frames if use_blend else 0
+    blend_out_frames = blend_out_frames if use_blend else 0
 
     frame_range = to_frame - from_frame + 1
     total_blend_frames = blend_in_frames + blend_out_frames
@@ -4577,7 +4598,8 @@ def resample_blend(chr_rlx_cache, rig,
 
     if (not relative_root and
         not current_root and
-        not use_blend):
+        not use_blend and
+        not overwrite):
         return
 
     utils.log_info(f"Resampling motion: {from_frame} - {to_frame}, blend in: {blend_in_frames}, blend out: {blend_out_frames}, use_blend: {use_blend}")
@@ -4589,7 +4611,7 @@ def resample_blend(chr_rlx_cache, rig,
     if rig.type == "ARMATURE":
 
         if not bone_names:
-            if use_blend:
+            if use_blend or overwrite:
                 bone_names = [ b.name for b in rig.pose.bones ]
             elif relative_root or current_root:
                 bone_names = [ rig.pose.bones[0].name ]
@@ -4597,7 +4619,7 @@ def resample_blend(chr_rlx_cache, rig,
         blend_bone_curves(motion_rig_channel, stored_rig_channel,
                           from_frame, to_frame,
                           rig, bone_names, relative_root, current_root,
-                          use_blend, overall_strength,
+                          use_blend, overwrite, overall_strength,
                           blend_in_frames, blend_out_frames,
                           blend_in_data, blend_out_data,
                           use_mask_bones, blend_mask_bones,
@@ -4605,7 +4627,7 @@ def resample_blend(chr_rlx_cache, rig,
 
         blend_data_curves(motion_rig_channel, stored_rig_channel,
                           from_frame, to_frame,
-                          use_blend, overall_strength,
+                          use_blend, overwrite, overall_strength,
                           blend_in_frames, blend_out_frames,
                           blend_in_data, blend_out_data,
                           processed_fcurves=processed_fcurves)
@@ -4615,7 +4637,7 @@ def resample_blend(chr_rlx_cache, rig,
     if rig.type == "ARMATURE":
 
         if not key_names:
-            key_names = get_shape_key_names(rig) if use_blend else []
+            key_names = get_shape_key_names(rig) if (use_blend or overwrite) else []
 
         for obj_name in key_targets:
 
@@ -4629,7 +4651,7 @@ def resample_blend(chr_rlx_cache, rig,
             blend_key_curves(motion_key_channel, stored_key_channel,
                              from_frame, to_frame,
                              obj_name, key_names,
-                             use_blend, overall_strength,
+                             use_blend, overwrite, overall_strength,
                              blend_in_frames, blend_out_frames,
                              blend_in_data, blend_out_data,
                              use_mask_keys, blend_mask_keys,
@@ -4641,14 +4663,14 @@ def resample_blend(chr_rlx_cache, rig,
 
         blend_data_curves(motion_rig_channel, stored_rig_channel,
                           from_frame, to_frame,
-                          use_blend, overall_strength,
+                          use_blend, overwrite, overall_strength,
                           blend_in_frames, blend_out_frames,
                           blend_in_data, blend_out_data,
                           processed_fcurves=processed_fcurves)
 
         blend_data_curves(motion_data_channel, stored_data_channel,
                           from_frame, to_frame,
-                          use_blend, overall_strength,
+                          use_blend, overwrite, overall_strength,
                           blend_in_frames, blend_out_frames,
                           blend_in_data, blend_out_data,
                           processed_fcurves=processed_fcurves)
@@ -4658,7 +4680,7 @@ def resample_blend(chr_rlx_cache, rig,
 def blend_bone_curves(motion_channel, stored_channel,
                       from_frame, to_frame,
                       rig, bone_names, relative_root, current_root,
-                      use_blend, overall_strength,
+                      use_blend, overwrite, overall_strength,
                       blend_in_frames, blend_out_frames,
                       blend_in_data, blend_out_data,
                       use_mask_bones, blend_mask_bones,
@@ -4666,6 +4688,9 @@ def blend_bone_curves(motion_channel, stored_channel,
 
     motion_action, motion_slot, motion_channelbag = motion_channel
     stored_action, stored_slot, stored_channelbag = stored_channel
+
+    blend_in_frames = blend_in_frames if use_blend else 0
+    blend_out_frames = blend_out_frames if use_blend else 0
 
     base_frames = set()
     # include all blend in / out frames
@@ -4728,7 +4753,7 @@ def blend_bone_curves(motion_channel, stored_channel,
                     frames.add(frame)
 
         # include all frames from the source curve
-        if use_blend:
+        if use_blend or overwrite:
             for fcurve in stored_curves:
                 if fcurve:
                     num_points = len(fcurve.keyframe_points)
@@ -4763,8 +4788,8 @@ def blend_bone_curves(motion_channel, stored_channel,
                 motion_rot = MR.to_quaternion()
 
             # if blending, apply motion blend:
-            if use_blend:
-                blend_strength = overall_strength
+            if use_blend or overwrite:
+                blend_strength = overall_strength if use_blend else 1.0
                 stored_loc, stored_rot = evaluate_action_bone_transform_set(stored_transform_set, frame)
 
                 if frame < from_frame or frame > to_frame:
@@ -4805,26 +4830,42 @@ def blend_bone_curves(motion_channel, stored_channel,
                 resampled_data[i][index] = frame
                 resampled_data[i][index+1] = transform_data[i]
 
-        # write the resampled curve data back to the motion transform curves:
-        for i, fcurve in enumerate(motion_curves):
-            if processed_fcurves:
-                if fcurve and fcurve in processed_fcurves: continue
-                processed_fcurves.append(fcurve)
-            if not fcurve:
-                fcurve = clone_fcurve_to_channel(stored_curves[i], motion_channelbag)
+        if overwrite:
+            # write the resampled curve data back to the stored transform curves:
+            for i, fcurve in enumerate(stored_curves):
+                if processed_fcurves:
+                    if fcurve and fcurve in processed_fcurves: continue
+                    processed_fcurves.append(fcurve)
+                if not fcurve:
+                    fcurve = clone_fcurve_to_channel(motion_curves[i], stored_channelbag)
+                    if fcurve:
+                        utils.log_detail(f"Added bone fcurve {bone_name}[{i}]")
                 if fcurve:
-                    utils.log_detail(f"Added bone fcurve {bone_name}[{i}]")
-            if fcurve:
-                fcurve.keyframe_points.clear()
-                fcurve.keyframe_points.add(num_frames)
-                fcurve.keyframe_points.foreach_set('co', resampled_data[i])
-                reset_fcurve_interpolation(fcurve)
+                    fcurve.keyframe_points.clear()
+                    fcurve.keyframe_points.add(num_frames)
+                    fcurve.keyframe_points.foreach_set('co', resampled_data[i])
+                    reset_fcurve_interpolation(fcurve)
+        else:
+            # write the resampled curve data back to the motion transform curves:
+            for i, fcurve in enumerate(motion_curves):
+                if processed_fcurves:
+                    if fcurve and fcurve in processed_fcurves: continue
+                    processed_fcurves.append(fcurve)
+                if not fcurve:
+                    fcurve = clone_fcurve_to_channel(stored_curves[i], motion_channelbag)
+                    if fcurve:
+                        utils.log_detail(f"Added bone fcurve {bone_name}[{i}]")
+                if fcurve:
+                    fcurve.keyframe_points.clear()
+                    fcurve.keyframe_points.add(num_frames)
+                    fcurve.keyframe_points.foreach_set('co', resampled_data[i])
+                    reset_fcurve_interpolation(fcurve)
 
 
 def blend_key_curves(motion_channel, stored_channel,
                      from_frame, to_frame,
                      obj_name, key_names,
-                     use_blend, overall_strength,
+                     use_blend, overwrite, overall_strength,
                      blend_in_frames, blend_out_frames,
                      blend_in_data, blend_out_data,
                      use_mask_keys, blend_mask_keys,
@@ -4832,6 +4873,9 @@ def blend_key_curves(motion_channel, stored_channel,
 
     motion_action, motion_slot, motion_channelbag = motion_channel
     stored_action, stored_slot, stored_channelbag = stored_channel
+
+    blend_in_frames = blend_in_frames if use_blend else 0
+    blend_out_frames = blend_out_frames if use_blend else 0
 
     base_frames = set()
     # include all blend in / out frames
@@ -4874,7 +4918,7 @@ def blend_key_curves(motion_channel, stored_channel,
                 frames.add(frame)
 
         # also include frames from the source curve
-        if use_blend:
+        if use_blend or overwrite:
             if stored_key_curve:
                 num_points = len(stored_key_curve.keyframe_points)
                 data = [0.0, 0.0] * num_points
@@ -4897,8 +4941,8 @@ def blend_key_curves(motion_channel, stored_channel,
             motion_value = evaluate_action_curve(motion_key_curve, frame)
 
             # if blending, apply motion blend:
-            if use_blend:
-                blend_strength = overall_strength
+            if use_blend or overwrite:
+                blend_strength = overall_strength if use_blend else 1.0
                 stored_value = evaluate_action_curve(stored_key_curve, frame)
 
                 if frame < from_frame or frame > to_frame:
@@ -4931,27 +4975,42 @@ def blend_key_curves(motion_channel, stored_channel,
             resampled_data[index] = frame
             resampled_data[index+1] = blend_value
 
-        # write the resampled curve data back to the motion curve:
-        if not motion_key_curve:
-            motion_key_curve = clone_fcurve_to_channel(stored_key_curve, motion_channelbag)
+        if overwrite:
+            # write the resampled curve data back to the stored curve:
+            if not stored_key_curve:
+                stored_key_curve = clone_fcurve_to_channel(motion_key_curve, stored_channelbag)
+                if stored_key_curve:
+                    utils.log_detail(f"Added key fcurve {obj_name}/{key_name}")
+            if stored_key_curve:
+                stored_key_curve.keyframe_points.clear()
+                stored_key_curve.keyframe_points.add(num_frames)
+                stored_key_curve.keyframe_points.foreach_set('co', resampled_data)
+                reset_fcurve_interpolation(stored_key_curve)
+        else:
+            # write the resampled curve data back to the motion curve:
+            if not motion_key_curve:
+                motion_key_curve = clone_fcurve_to_channel(stored_key_curve, motion_channelbag)
+                if motion_key_curve:
+                    utils.log_detail(f"Added key fcurve {obj_name}/{key_name}")
             if motion_key_curve:
-                utils.log_detail(f"Added key fcurve {obj_name}/{key_name}")
-        if motion_key_curve:
-            motion_key_curve.keyframe_points.clear()
-            motion_key_curve.keyframe_points.add(num_frames)
-            motion_key_curve.keyframe_points.foreach_set('co', resampled_data)
-            reset_fcurve_interpolation(motion_key_curve)
+                motion_key_curve.keyframe_points.clear()
+                motion_key_curve.keyframe_points.add(num_frames)
+                motion_key_curve.keyframe_points.foreach_set('co', resampled_data)
+                reset_fcurve_interpolation(motion_key_curve)
 
 
 def blend_data_curves(motion_channel, stored_channel,
                       from_frame, to_frame,
-                      use_blend, overall_strength,
+                      use_blend, overwrite, overall_strength,
                       blend_in_frames, blend_out_frames,
                       blend_in_data, blend_out_data,
                       processed_fcurves: List[bpy.types.FCurve]=None):
 
     motion_action, motion_slot, motion_channelbag = motion_channel
     stored_action, stored_slot, stored_channelbag = stored_channel
+
+    blend_in_frames = blend_in_frames if use_blend else 0
+    blend_out_frames = blend_out_frames if use_blend else 0
 
     base_frames = set()
     # include all blend in / out frames
@@ -5006,7 +5065,7 @@ def blend_data_curves(motion_channel, stored_channel,
                 frames.add(frame)
 
         # also include frames from the source curve
-        if use_blend:
+        if use_blend or overwrite:
             if stored_data_curve:
                 num_points = len(stored_data_curve.keyframe_points)
                 data = [0.0, 0.0] * num_points
@@ -5029,8 +5088,8 @@ def blend_data_curves(motion_channel, stored_channel,
             motion_value = evaluate_action_curve(motion_data_curve, frame)
 
             # if blending, apply motion blend:
-            if use_blend:
-                blend_strength = overall_strength
+            if use_blend or overwrite:
+                blend_strength = overall_strength if use_blend else 1.0
                 stored_value = evaluate_action_curve(stored_data_curve, frame)
 
                 if frame < from_frame or frame > to_frame:
@@ -5063,16 +5122,28 @@ def blend_data_curves(motion_channel, stored_channel,
             resampled_data[index] = frame
             resampled_data[index+1] = blend_value
 
-        # write the resampled curve data back to the motion curve:
-        if not motion_data_curve:
-            motion_data_curve = clone_fcurve_to_channel(stored_data_curve, motion_channelbag)
+        if overwrite:
+            # write the resampled curve data back to the stored curve:
+            if not stored_data_curve:
+                stored_data_curve = clone_fcurve_to_channel(motion_data_curve, stored_channelbag)
+                if stored_data_curve:
+                    utils.log_detail(f"Added data fcurve {path_id}")
+            if stored_data_curve:
+                stored_data_curve.keyframe_points.clear()
+                stored_data_curve.keyframe_points.add(num_frames)
+                stored_data_curve.keyframe_points.foreach_set('co', resampled_data)
+                reset_fcurve_interpolation(stored_data_curve)
+        else:
+            # write the resampled curve data back to the motion curve:
+            if not motion_data_curve:
+                motion_data_curve = clone_fcurve_to_channel(stored_data_curve, motion_channelbag)
+                if motion_data_curve:
+                    utils.log_detail(f"Added data fcurve {path_id}")
             if motion_data_curve:
-                utils.log_detail(f"Added data fcurve {path_id}")
-        if motion_data_curve:
-            motion_data_curve.keyframe_points.clear()
-            motion_data_curve.keyframe_points.add(num_frames)
-            motion_data_curve.keyframe_points.foreach_set('co', resampled_data)
-            reset_fcurve_interpolation(motion_data_curve)
+                motion_data_curve.keyframe_points.clear()
+                motion_data_curve.keyframe_points.add(num_frames)
+                motion_data_curve.keyframe_points.foreach_set('co', resampled_data)
+                reset_fcurve_interpolation(motion_data_curve)
 
 
 def get_relative_transformation(motion_loc: Vector, motion_rot: Quaternion,
@@ -5103,13 +5174,14 @@ def fetch_action_bone_transform_set(channelbag, bone_name: str):
     rot_curves = [None, None, None, None]
     has_loc_curves = False
     has_rot_curves = False
-    for fcurve in channelbag.fcurves:
-        if fcurve.data_path == loc_path:
-            loc_curves[fcurve.array_index] = fcurve
-            has_loc_curves = True
-        elif fcurve.data_path == rot_path:
-            rot_curves[fcurve.array_index] = fcurve
-            has_rot_curves = True
+    if channelbag:
+        for fcurve in channelbag.fcurves:
+            if fcurve.data_path == loc_path:
+                loc_curves[fcurve.array_index] = fcurve
+                has_loc_curves = True
+            elif fcurve.data_path == rot_path:
+                rot_curves[fcurve.array_index] = fcurve
+                has_rot_curves = True
     return (loc_curves, rot_curves), has_loc_curves or has_rot_curves
 
 
@@ -6067,9 +6139,9 @@ class CCICMotionBlend(bpy.types.Operator):
         elif chr_cache:
             opts = chr_cache.action_options
         frame_text = {
-            "START": "Start",
-            "CURRENT": "Current",
             "MATCH": "Match",
+            "CURRENT": "Current",
+            "START": "Start",
         }
         mask_text = "Mask|" if opts and (opts.use_bone_masking or opts.use_key_masking) else ""
         blend_text = "Blend|" if opts and opts.use_blend else ""

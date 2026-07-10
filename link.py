@@ -129,6 +129,9 @@ class LinkActor():
             self.object = obj_or_chr_cache
             rl_name = utils.get_prop(obj_or_chr_cache, "rl_name")
             self.name = rl_name if rl_name else obj_or_chr_cache.name
+            # force create an RLX Cache for staging cache
+            if self.object.type == "LIGHT" or self.object.type == "CAMERA":
+                self.get_rlx_cache(create=True)
         else:
             self.object = None
             self.chr_cache = obj_or_chr_cache
@@ -224,7 +227,7 @@ class LinkActor():
             if obj.type == "LIGHT" or obj.type == "CAMERA":
                 if not search_type or (obj.type == search_type):
                     obj_link_id = utils.get_rl_link_id(obj)
-                    if obj_link_id is not None and link_id == obj_link_id:
+                    if obj_link_id is not None and link_id is not None and link_id == obj_link_id:
                         actor = LinkActor(obj)
                         utils.log_detail(f"Staging (Light/Camera) found by link_id: {actor.name} / {link_id}")
                         return actor
@@ -918,6 +921,7 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
             light_cache["spot_blend"] = create_fcurves_cache(count, 1, [1])
             light_cache["spot_size"] = create_fcurves_cache(count, 1, [1])
             actor.set_cache(actor_cache)
+            actor.action_store_id = props.store_actions(actor.object)
 
         else:
             # when not setting keyframes remove all actions from the light
@@ -1390,7 +1394,8 @@ def write_sequence_actions(actor: LinkActor, num_frames, start_frame):
 
             if rig_action:
                 rigutils.load_motion_set(rig, rig_action)
-                rigutils.finalize_motion_import(actor.get_chr_cache(), rig, rig_action, actor.action_store_id)
+                rigutils.finalize_motion_import(actor.get_chr_cache(), rig, rig_action, actor.action_store_id,
+                                                overwrite=True)
 
         elif actor.get_type() == "LIGHT":
 
@@ -1413,7 +1418,7 @@ def write_sequence_actions(actor: LinkActor, num_frames, start_frame):
             utils.safe_set_action(light.data, light_action, slot=light_slot)
 
             rlx_cache = actor.get_rlx_cache(create=True)
-            rigutils.finalize_rlx_import(rlx_cache, light, [ob_action, light_action], actor.action_store_id)
+            rigutils.finalize_rlx_import(rlx_cache, light, [ob_action, light_action], actor.action_store_id, overwrite=True)
 
         elif actor.get_type() == "CAMERA":
 
@@ -3081,10 +3086,7 @@ class LinkService():
         offset = 0
         count, frame = struct.unpack_from("!II", pose_data, offset)
         frame = RLFA(frame)
-        opt_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
-        opt_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
-        if LINK_DATA.set_keyframes:
-            ensure_current_frame(opt_frame)
+        least_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
         LINK_DATA.sequence_current_frame = frame
         offset = 8
         actors = []
@@ -3108,6 +3110,14 @@ class LinkService():
                 objects = []
                 rig = None
                 is_prop = False
+
+            if actor:
+                opt_frame = LinkActor.get_sequence_frame(actor, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+                opt_start_frame = LinkActor.get_sequence_frame(actor, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+                least_frame = opt_frame if opt_frame < least_frame else least_frame
+            else:
+                opt_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+                opt_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
 
             # unpack rig transform
             tx,ty,tz,rx,ry,rz,rw,sx,sy,sz = struct.unpack_from("!ffffffffff", pose_data, offset)
@@ -3202,6 +3212,9 @@ class LinkService():
 
             if rig:
                 rig.pose.bones.update()
+
+        if LINK_DATA.set_keyframes:
+            ensure_current_frame(least_frame)
 
         return actors
 
@@ -3536,11 +3549,18 @@ class LinkService():
         else:
             actors = None
 
+        least_start_frame = LinkActor.get_sequence_frame(None, start_frame, start_frame, current_frame)
+        most_end_frame = LinkActor.get_sequence_frame(None, end_frame, start_frame, current_frame)
+        least_current_frame = LinkActor.get_sequence_frame(None, frame, start_frame, current_frame)
+
         if actors:
             for actor in actors:
                 opt_start_frame = LinkActor.get_sequence_frame(actor, start_frame, start_frame, current_frame)
                 opt_end_frame = LinkActor.get_sequence_frame(actor, end_frame, start_frame, current_frame)
                 opt_frame = LinkActor.get_sequence_frame(actor, frame, start_frame, current_frame)
+                least_start_frame = opt_start_frame if opt_start_frame < least_start_frame else least_start_frame
+                most_end_frame = opt_end_frame if opt_end_frame > most_end_frame else most_end_frame
+                least_current_frame = opt_frame if opt_frame < least_current_frame else least_current_frame
                 if expand_range:
                     if opt_start_frame < bpy.context.scene.frame_start:
                         bpy.context.scene.frame_start = opt_start_frame
@@ -3552,25 +3572,17 @@ class LinkService():
                     if opt_frame > bpy.context.scene.frame_end:
                         bpy.context.scene.frame_end = opt_frame
 
-            opt_start_frame = LinkActor.get_sequence_frame(actors[0], start_frame, start_frame, current_frame)
-            opt_end_frame = LinkActor.get_sequence_frame(actors[0], end_frame, start_frame, current_frame)
-            opt_frame = LinkActor.get_sequence_frame(actors[0], frame, start_frame, current_frame)
-        else:
-            opt_start_frame = LinkActor.get_sequence_frame(None, start_frame, start_frame, current_frame)
-            opt_end_frame = LinkActor.get_sequence_frame(None, end_frame, start_frame, current_frame)
-            opt_frame = LinkActor.get_sequence_frame(None, frame, start_frame, current_frame)
-
         if set_preview:
-            set_frame_range(opt_start_frame, opt_end_frame, preview=True)
+            set_frame_range(least_start_frame, most_end_frame, preview=True)
 
         if set_current:
-            set_frame(opt_frame)
+            set_frame(least_current_frame)
         elif set_start:
-            set_frame(opt_start_frame)
+            set_frame(least_start_frame)
         elif set_end:
-            set_frame(opt_end_frame)
+            set_frame(most_end_frame)
 
-        return opt_frame, opt_start_frame, opt_end_frame
+        return least_current_frame, least_start_frame, most_end_frame
 
     def receive_pose(self, data):
         props = vars.props()
@@ -3605,9 +3617,8 @@ class LinkService():
             if actor:
                 actors.append(actor)
 
-        opt_frame, opt_start_frame, opt_end_frame = \
-            self.get_actors_frame_range(None, frame, start_frame, end_frame, current_frame,
-                                        expand_frame=True, set_current=True)
+        self.get_actors_frame_range(actors, frame, start_frame, end_frame, current_frame,
+                                    expand_frame=True, set_current=True)
 
         # set pose frame
         update_link_status(f"Receiving Pose Frame: {frame}")
@@ -3626,9 +3637,6 @@ class LinkService():
         actors = self.decode_pose_frame_data(data)
         utils.log_info(f"Receive Pose Frame: {frame}")
 
-        opt_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
-        opt_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
-
         # force recalculate all transforms (lights and cameras seem to need this)
         bpy.context.view_layer.update()
         self.reposition_prop_meshes(actors)
@@ -3637,9 +3645,17 @@ class LinkService():
         update_link_status(f"Pose Frame: {frame}")
         self.select_actor_rigs(actors)
 
+        opt_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+        opt_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+
+        least_frame = opt_frame
+
         actor: LinkActor
         if LINK_DATA.set_keyframes:
             for actor in actors:
+                opt_frame = LinkActor.get_sequence_frame(actor, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+                opt_start_frame = LinkActor.get_sequence_frame(actor, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+                least_frame = opt_frame if opt_frame < least_frame else least_frame
                 if actor.ready(require_cache=LINK_DATA.set_keyframes):
                     if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
                         store_bone_cache_keyframes(actor, opt_frame, opt_start_frame)
@@ -3651,6 +3667,7 @@ class LinkService():
         # write pose action
         for actor in actors:
             if actor.ready(require_cache=LINK_DATA.set_keyframes):
+                opt_start_frame = LinkActor.get_sequence_frame(actor, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
                 if LINK_DATA.set_keyframes:
                     write_sequence_actions(actor, 1, opt_start_frame)
                 if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
@@ -3666,7 +3683,7 @@ class LinkService():
         LINK_DATA.sequence_type = None
         LINK_DATA.sequence_selection = None
         if LINK_DATA.set_keyframes:
-            bpy.context.scene.frame_current = opt_frame
+            bpy.context.scene.frame_current = least_frame
         utils.restore_mode_selection_state(state, include_frames=False)
 
         # doesn't work with existing actions, the pose is reset back to action after execution.
@@ -3710,9 +3727,8 @@ class LinkService():
             if actor:
                 actors.append(actor)
 
-        opt_frame, opt_start_frame, opt_end_frame = \
-            self.get_actors_frame_range(None, frame, start_frame, end_frame, current_frame,
-                                        expand_range=True, set_preview=True, set_start=True)
+        self.get_actors_frame_range(actors, frame, start_frame, end_frame, current_frame,
+                                    expand_range=True, set_preview=True, set_start=True)
 
         LINK_DATA.sequence_actors = actors
         LINK_DATA.sequence_type = "SEQUENCE"
@@ -3747,9 +3763,6 @@ class LinkService():
         actors = self.decode_pose_frame_data(data)
         utils.update_timer("DECODE")
 
-        opt_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
-        opt_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
-
         utils.mark_timer("REPOSITION")
         self.reposition_prop_meshes(actors)
         utils.update_timer("REPOSITION")
@@ -3770,6 +3783,8 @@ class LinkService():
         for actor in actors:
             if actor.ready(require_cache=LINK_DATA.set_keyframes):
                 if LINK_DATA.set_keyframes:
+                    opt_frame = LinkActor.get_sequence_frame(actor, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+                    opt_start_frame = LinkActor.get_sequence_frame(actor, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
                     if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
                         store_bone_cache_keyframes(actor, opt_frame, opt_start_frame)
                     elif actor.get_type() == "LIGHT":
@@ -3811,11 +3826,13 @@ class LinkService():
         else:
             update_link_status(f"Live Sequence Aborted!")
 
-        opt_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+        least_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
 
         # write actions
         utils.mark_timer("WRITE")
         for actor in actors:
+            opt_start_frame = LinkActor.get_sequence_frame(actor, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+            least_start_frame = opt_start_frame if opt_start_frame < least_start_frame else least_start_frame
             if LINK_DATA.set_keyframes:
                 write_sequence_actions(actor, num_frames, opt_start_frame)
             if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
@@ -4072,6 +4089,7 @@ class LinkService():
             character_type = character_types[i]
             file = name + ".rlx"
             rlx_path = self.get_remote_file(remote_id, base_path, file_override=file)
+            actor = LinkActor.find_actor(link_id, search_name=name, search_type=character_type)
 
             utils.log_info(f"Receive Light / Camera Import: {name} / {link_id} / {rlx_path}")
 
@@ -4080,6 +4098,7 @@ class LinkService():
                 utils.log_error(f"Invalid Import Path: {rlx_path}")
                 continue
 
+            opt_start_frame = LinkActor.get_sequence_frame(actor, start_frame, start_frame, current_frame)
             self.do_file_import(rlx_path, link_id, save_after_import, opt_start_frame)
 
     def receive_motion_import(self, data):

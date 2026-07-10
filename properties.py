@@ -730,9 +730,9 @@ class CCIC_UI_MixItem(bpy.types.PropertyGroup):
 
 class CCICActionOptions(bpy.types.PropertyGroup):
     frame_mode: bpy.props.EnumProperty(items=[
-                        ("START","Start","Import / Blend keyframes starting at the start frame (frame 1)"),
-                        ("CURRENT","Current","Import / Blend keyframes starting at the current frame"),
                         ("MATCH","Match","Import / Blend keyframes matching keyframes with source motion\n*Note: +1 as Blender starts at frame 1*"),
+                        ("CURRENT","Current","Import / Blend keyframes starting at the current frame"),
+                        ("START","Start","Import / Blend keyframes starting at the start frame (frame 1)"),
                     ], default="MATCH", name = "Import Frame Mode")
     use_bone_masking: bpy.props.BoolProperty(default=False, name="Use Bone Masking",
                                         description="Only import the keyframes from the masked bones")
@@ -3758,6 +3758,36 @@ class CC3ImportProps(bpy.types.PropertyGroup):
                     restored = True
         return restored
 
+    def fetch_stored_motion_set_id(self, store_id):
+        action_store: CCICActionStore
+        for action_store in self.action_options.action_store:
+            if action_store.store_id == store_id:
+                if (utils.object_exists_is_armature(action_store.object) or
+                    utils.object_exists_is_light(action_store.object) or
+                    utils.object_exists_is_camera(action_store.object)):
+                    obj_action = action_store.object_action
+                    data_action = action_store.data_action
+                    if obj_action and "rl_set_id" in obj_action:
+                        return obj_action["rl_set_id"]
+                    elif data_action and "rl_set_id" in data_action:
+                        return data_action["rl_set_id"]
+        return None
+
+    def fetch_stored_rig_action(self, store_id):
+        action_store: CCICActionStore
+        first_action = None
+        for action_store in self.action_options.action_store:
+            if action_store.store_id == store_id:
+                action = action_store.object_action
+                if utils.action_exists(action):
+                    if (utils.object_exists_is_armature(action_store.object) or
+                        utils.object_exists_is_light(action_store.object) or
+                        utils.object_exists_is_camera(action_store.object)):
+                            return action
+                    if not first_action:
+                        first_action = action
+        return first_action
+
     def fetch_stored_rig_channel(self, store_id):
         action_store: CCICActionStore
         for action_store in self.action_options.action_store:
@@ -3766,10 +3796,11 @@ class CC3ImportProps(bpy.types.PropertyGroup):
                     utils.object_exists_is_light(action_store.object) or
                     utils.object_exists_is_camera(action_store.object)):
                     action = action_store.object_action
-                    slot_id = action_store.object_slot_id
-                    slot = utils.get_action_slot(action, slot_id=slot_id)
-                    channelbag = utils.get_action_channelbag(action, slot)
-                    return action, slot, channelbag
+                    if utils.action_exists(action):
+                        slot_id = action_store.object_slot_id
+                        slot = utils.get_action_slot(action, slot_id=slot_id)
+                        channelbag = utils.get_action_channelbag(action, slot)
+                        return action, slot, channelbag
         return None, None, None
 
     def fetch_stored_key_channels(self, store_id):
@@ -3780,10 +3811,11 @@ class CC3ImportProps(bpy.types.PropertyGroup):
                 if (utils.object_exists_has_shape_keys(action_store.object)):
                     obj = action_store.object
                     action = action_store.object_action
-                    slot_id = action_store.object_slot_id
-                    slot = utils.get_action_slot(action, slot_id=slot_id)
-                    channelbag = utils.get_action_channelbag(action, slot)
-                    key_actions[obj.name] = (action, slot, channelbag)
+                    if utils.action_exists(action):
+                        slot_id = action_store.object_slot_id
+                        slot = utils.get_action_slot(action, slot_id=slot_id)
+                        channelbag = utils.get_action_channelbag(action, slot)
+                        key_actions[obj.name] = (action, slot, channelbag)
         return key_actions
 
     def fetch_stored_data_channel(self, store_id):
@@ -3793,10 +3825,11 @@ class CC3ImportProps(bpy.types.PropertyGroup):
                 if (utils.object_exists_is_light(action_store.object) or
                     utils.object_exists_is_camera(action_store.object)):
                     action = action_store.data_action
-                    slot_id = action_store.data_slot_id
-                    slot = utils.get_action_slot(action, slot_id=slot_id)
-                    channelbag = utils.get_action_channelbag(action, slot)
-                    return action, slot, channelbag
+                    if utils.action_exists(action):
+                        slot_id = action_store.data_slot_id
+                        slot = utils.get_action_slot(action, slot_id=slot_id)
+                        channelbag = utils.get_action_channelbag(action, slot)
+                        return action, slot, channelbag
         return None, None, None
 
 

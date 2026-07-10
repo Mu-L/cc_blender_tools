@@ -212,6 +212,7 @@ class RLXActor():
     def __init__(self, object):
         self.object = object
         self.name = object.name
+        self.get_rlx_cache(create=True)
 
     def get_rlx_cache(self, create=False):
         props = vars.props()

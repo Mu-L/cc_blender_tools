@@ -33,6 +33,16 @@ Links
 
 ## Changelog
 
+### 2.4.2
+- Updated Morph export for Blender 5.1
+- Fix to constraint driver setup with missing shape keys.
+- Fix to Blender 5.1 import operator changes.
+- Motion Sets & Blending update:
+    - Motion sets updated for lights and cameras.
+    - Motion blending for light & camera motion sets.
+    - Motion blending always generates a new motion (non-destructive)
+    - Datalink Pose and Sequence now write onto current motion.
+
 ### 2.4.1
 - Mesh modify pipeline.
     - Sends mesh only (no armature) for exact replace mesh updates.

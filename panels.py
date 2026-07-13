@@ -18,7 +18,7 @@ import bpy
 import textwrap
 import os
 
-from . import addon_updater_ops, iconutils, rigging, rigutils
+from . import addon_updater_ops, iconutils, rigging, rigutils, rlx
 from . import (link, rigify_mapping_data, bones, characters, sculpting, springbones,
                bake, rigidbody, physics, colorspace, modifiers, channel_mixer, nodeutils,
                utils, params, vars)
@@ -91,7 +91,7 @@ def character_info_box(chr_cache, chr_rig, layout, show_name = True, show_type =
     is_non_standard = True
     is_morph = False
     if chr_cache:
-        character_name = chr_cache.character_name
+        character_name = chr_cache.get_name()
         is_non_standard = chr_cache.is_non_standard()
         if chr_cache.is_standard():
             type_text = f"Standard ({chr_cache.generation})"
@@ -527,7 +527,7 @@ def character_tools_ui(context, layout: bpy.types.UILayout):
             rig = generic_rig
 
     if chr_cache:
-        chr_name = chr_cache.character_name
+        chr_name = chr_cache.get_name()
     elif generic_rig:
         chr_name = generic_rig.name
     elif non_chr_objects:
@@ -829,7 +829,7 @@ class ACTION_UL_List(bpy.types.UIList):
             if arm_object.type == "ARMATURE":
                 arm_name = arm_object.name
             arm_set_generation = rigutils.get_set_generation(arm_object)
-        rl_arm_id = utils.get_rl_object_id(arm_object)
+        rl_arm_id = utils.get_rl_id(arm_object)
         items = getattr(data, propname)
         filtered = [self.bitflag_filter_item] * len(items)
         item : bpy.types.Action
@@ -837,13 +837,13 @@ class ACTION_UL_List(bpy.types.UIList):
             allowed = False
             action_set_generation = rigutils.get_set_generation(item)
             action_type = utils.get_prop(item, "rl_action_type")
-            action_armature_id = utils.get_prop(item, "rl_armature_id")
+            action_rl_id = utils.get_rl_id(item)
             channel = utils.get_action_channelbag(item, slot_type="OBJECT")
             if props.armature_action_filter and arm_object:
-                if arm_set_generation and action_set_generation and action_type and rl_arm_id and action_armature_id:
+                if arm_set_generation and action_set_generation and action_type and rl_arm_id and action_rl_id:
                     if (arm_set_generation == action_set_generation and
                         (action_type == "ARM" or action_type == "SLOTTED") and
-                        action_armature_id == rl_arm_id):
+                        action_rl_id == rl_arm_id):
                         allowed = True
             elif channel and len(channel.fcurves) > 0:
                 if channel.fcurves[0].data_path.startswith("key_blocks"):
@@ -877,23 +877,30 @@ class ACTION_SET_UL_List(bpy.types.UIList):
         items = getattr(data, propname)
         filtered = [self.bitflag_filter_item] * len(items)
         item : bpy.types.Action
+        rlx_cache = props.get_context_staging_cache(context)
         chr_cache = props.get_context_character_cache(context)
-        arm_set_generation = None
-        arm_rig_id = None
-        if chr_cache:
+        set_generation = None
+        rig_id = None
+        arm = None
+        rob = None
+        if rlx_cache:
+            rob = rlx_cache.get_rlx_object()
+            set_generation = rlx.get_rlx_generation(rob)
+            rig_id = utils.get_rl_id(rob)
+        elif chr_cache:
             arm = chr_cache.get_armature()
-            arm_set_generation = rigutils.get_set_generation(arm)
-            arm_rig_id = utils.get_prop(arm, "rl_armature_id")
+            set_generation = rigutils.get_set_generation(arm)
+            rig_id = utils.get_rl_id(arm)
         for i, item in enumerate(items):
             allowed = False
             action_set_generation = rigutils.get_set_generation(item)
             action_type = utils.get_prop(item, "rl_action_type")
-            action_rig_id = utils.get_prop(item, "rl_armature_id")
-            if action_type == "ARM" or action_type == "SLOTTED":
+            action_rig_id = utils.get_rl_id(item)
+            if action_type == "ARM" or action_type == "SLOTTED" or action_type == "RLX":
                 if props.filter_motion_set_type == "RIG":
-                    allowed = arm_rig_id and action_rig_id and arm_rig_id == action_rig_id
+                    allowed = rig_id and action_rig_id and rig_id == action_rig_id
                 elif props.filter_motion_set_type == "GEN":
-                    allowed = arm_set_generation and action_set_generation and arm_set_generation == action_set_generation
+                    allowed = set_generation and action_set_generation and set_generation == action_set_generation
                 else:
                     allowed = True
             # filter by name
@@ -961,7 +968,7 @@ class CC3CharacterSettingsPanel(bpy.types.Panel):
         # import details
         if chr_cache:
             if fake_drop_down(box.row(), "Import Details", "stage1_details", props.stage1_details):
-                box.label(text="Name: " + chr_cache.character_name)
+                box.label(text="Name: " + chr_cache.get_name())
                 box.label(text="Type: " + chr_cache.get_import_type().upper())
                 split = box.split(factor=0.4)
                 col_1 = split.column()
@@ -979,7 +986,7 @@ class CC3CharacterSettingsPanel(bpy.types.Panel):
                     #if o:
                     box.prop(obj_cache, "object", text="")
             else:
-                box.label(text="Name: " + chr_cache.character_name)
+                box.label(text="Name: " + chr_cache.get_name())
         else:
             box.label(text="No Character")
         disable_on_linked(box, chr_cache)
@@ -994,6 +1001,7 @@ class CC3CharacterSettingsPanel(bpy.types.Panel):
             column.prop(PREFS, "import_deduplicate")
             column.prop(PREFS, "import_auto_convert")
             column.prop(PREFS, "import_reset_custom_normals")
+            column.prop(PREFS, "import_fix_5_1_normals")
             column.prop(PREFS, "clean_empty_mesh_data")
             column.prop(PREFS, "action_use_action_slots")
             column.prop(PREFS, "action_add_key_slots_per_obj")
@@ -2186,6 +2194,7 @@ class CC3RigifyPanel(bpy.types.Panel):
         prefs = vars.prefs()
 
         chr_cache, obj, mat, obj_cache, mat_cache = utils.get_context_character(context, strict=True)
+        rlx_cache = props.get_context_staging_cache(context)
         missing_materials = characters.has_missing_materials(chr_cache)
 
         layout = self.layout
@@ -2211,7 +2220,7 @@ class CC3RigifyPanel(bpy.types.Panel):
                 col_1 = split.column()
                 col_2 = split.column()
                 col_1.label(text = "Character:")
-                col_2.label(text = chr_cache.character_name)
+                col_2.label(text = chr_cache.get_name())
                 col_1.label(text = "Generation:")
                 col_2.label(text = chr_cache.generation)
                 col_1.label(text = "Face Profile:")
@@ -2597,12 +2606,15 @@ class CC3RigifyPanel(bpy.types.Panel):
                                       props.section_rigify_action_sets,
                                       icon="ANIM_DATA", icon_closed="ANIM_DATA"):
 
-                        layout.label(text="Import Options:")
+                        row = layout.row()
+                        row.label(text="Import Options:")
+                        row.operator("ccic.motion_prefs", icon="MODIFIER_ON", text="")
                         row = layout.row(align=True)
                         label = rigutils.CCICMotionBlend.label(context)
                         row.operator("ccic.motion_blend", icon="COLLAPSEMENU", text=label)
+                        row.operator("ccic.motion_blend_funcs", icon="LOOP_BACK", text="").param = "RESET_OPTS"
                         column = layout.column()
-                        motion_set_ui(column, chr_cache)
+                        motion_set_ui(column, chr_cache, rlx_cache)
 
                     box_row = layout.box().row()
                     if fake_drop_down(box_row,
@@ -2688,17 +2700,19 @@ class CC3RigifyPanel(bpy.types.Panel):
             wrapped_text_box(layout, "Rigify add-on is not enabled.", width, True)
 
 
-def motion_set_ui(layout: bpy.types.UILayout, chr_cache, show_nla=False):
+def motion_set_ui(layout: bpy.types.UILayout, chr_cache, rlx_cache, show_nla=False):
     props = vars.props()
 
     # current selected motion set action
     action_set_list_action = utils.collection_at_index(props.action_set_list_index, bpy.data.actions)
     action_set_generation = rigutils.get_set_generation(action_set_list_action)
     rig = None
-    rig_set_generation = None
-    if chr_cache:
+    set_generation = None
+    if rlx_cache:
+        set_generation = rlx_cache.get_generation()
+    elif chr_cache:
         rig = chr_cache.get_armature()
-        rig_set_generation = rigutils.get_set_generation(rig)
+        set_generation = rigutils.get_set_generation(rig)
 
     col = layout.column(align=True)
     split = col.split(factor=0.4)
@@ -2719,14 +2733,13 @@ def motion_set_ui(layout: bpy.types.UILayout, chr_cache, show_nla=False):
     param = "SET_FAKE_USER_OFF" if depress else "SET_FAKE_USER_ON"
     row.operator("ccic.rigutils", icon=icon, text="", depress=depress).param = param
 
-
     split = col.split(factor=0.5, align=True)
     split.scale_y = 1.5
     col_1 = split.column(align=True)
     col_2 = split.column(align=True)
     row = col_1.row(align=True)
     row.operator("ccic.rigutils", icon="ACTION_TWEAK", text="Load").param = "LOAD_MOTION_SET"
-    if rig_set_generation != action_set_generation:
+    if set_generation != action_set_generation:
         row.enabled = False
     col_2.operator("ccic.rigutils", icon="REMOVE", text="Clear").param = "CLEAR_ACTION_SET"
     col_1.separator()
@@ -2734,13 +2747,12 @@ def motion_set_ui(layout: bpy.types.UILayout, chr_cache, show_nla=False):
     col_1.operator("ccic.rigutils", icon="PLUS", text="New").param = "NEW_ACTION_SET"
     col_2.operator("ccic.rigutils", icon="MODIFIER_ON", text="Clean").param = "CLEAN_ACTIONS"
     col.operator("ccic.motion_blend", icon="MOD_ENVELOPE", text="Blend Motions").param="BLEND"
-    col.enabled = chr_cache is not None
-
+    col.enabled = chr_cache is not None or rlx_cache is not None
 
     if show_nla:
         row = col_1.row(align=True)
         row.operator("ccic.rigutils", icon="NLA_PUSHDOWN", text="Push").param = "PUSH_ACTION_SET"
-        if rig_set_generation != action_set_generation:
+        if set_generation != action_set_generation:
             row.enabled = False
         col_2.operator("ccic.rigutils", icon="RESTRICT_SELECT_OFF", text="Select").param = "SELECT_SET_STRIPS"
 
@@ -2772,7 +2784,7 @@ def motion_set_ui(layout: bpy.types.UILayout, chr_cache, show_nla=False):
         if not bpy.context.selected_nla_strips:
             split.enabled = False
 
-    if not chr_cache:
+    if not chr_cache and not rlx_cache:
         split.enabled = False
 
 
@@ -2788,19 +2800,23 @@ class CCICAnimationToolsPanel(bpy.types.Panel):
         prefs = vars.prefs()
 
         chr_cache, obj, mat, obj_cache, mat_cache = utils.get_context_character(context, strict=True)
+        rlx_cache = props.get_context_staging_cache(context)
 
         layout = self.layout
         layout.use_property_split = False
         layout.use_property_decorate = False
 
-        layout.label(text="Import Options:")
+        row = layout.row()
+        row.label(text="Import Options:")
+        row.operator("ccic.motion_prefs", icon="MODIFIER_ON", text="")
         row = layout.row(align=True)
         label = rigutils.CCICMotionBlend.label(context)
         row.operator("ccic.motion_blend", icon="COLLAPSEMENU", text=label).param="NONE"
+        row.operator("ccic.motion_blend_funcs", icon="LOOP_BACK", text="").param = "RESET_OPTS"
 
         column = layout.column()
 
-        motion_set_ui(column, chr_cache)
+        motion_set_ui(column, chr_cache, rlx_cache)
 
 
 class CCICNLASetsPanel(bpy.types.Panel):
@@ -2815,12 +2831,13 @@ class CCICNLASetsPanel(bpy.types.Panel):
         prefs = vars.prefs()
 
         chr_cache, obj, mat, obj_cache, mat_cache = utils.get_context_character(context, strict=True)
+        rlx_cache = props.get_context_staging_cache(context)
 
         layout = self.layout
         layout.use_property_split = False
         layout.use_property_decorate = False
 
-        motion_set_ui(layout, chr_cache, show_nla=True)
+        motion_set_ui(layout, chr_cache, rlx_cache, show_nla=True)
 
 
 class CCICNLABakePanel(bpy.types.Panel):
@@ -4102,7 +4119,7 @@ class CC3ToolsPipelineImportPanel(bpy.types.Panel):
         chr_cache, obj, mat, obj_cache, mat_cache = utils.get_context_character(context)
 
         if chr_cache:
-            character_name = chr_cache.character_name
+            character_name = chr_cache.get_name()
         else:
             character_name = "No Character"
 
@@ -4139,6 +4156,7 @@ class CC3ToolsPipelineImportPanel(bpy.types.Panel):
             column.prop(PREFS, "import_deduplicate")
             column.prop(PREFS, "import_auto_convert")
             column.prop(PREFS, "import_reset_custom_normals")
+            column.prop(PREFS, "import_fix_5_1_normals")
             column.prop(PREFS, "clean_empty_mesh_data")
             column.prop(PREFS, "action_use_action_slots")
             column.prop(PREFS, "action_add_key_slots_per_obj")
@@ -4215,7 +4233,7 @@ class CC3ToolsPipelineExportPanel(bpy.types.Panel):
         chr_cache, obj, mat, obj_cache, mat_cache = utils.get_context_character(context)
 
         if chr_cache:
-            character_name = chr_cache.character_name
+            character_name = chr_cache.get_name()
         else:
             character_name = "No Character"
 

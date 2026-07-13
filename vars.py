@@ -18,11 +18,11 @@
 
 import bpy
 
-VERSION_STRING = "v2.4.1"
+VERSION_STRING = "v2.4.2"
 DEV = False
 #DEV = True
 PLUGIN_COMPATIBLE = [
-    "2.4.1"
+    "2.4.1", "2.4.2",
 ]
 
 def set_version_string(bl_info):
@@ -136,6 +136,8 @@ ENUM_OBJECT_TYPES = [
                         ("OCCLUSION_PLUS", "Eye Occlusion Plus", "Eye occlusion plus object"),
                         ("TEARLINE", "Tearline", "Tear line object"),
                         ("TEARLINE_PLUS", "Tearline Plus", "Tear line plus object"),
+                        ("LIGHT", "Light", "Light"),
+                        ("CAMERA", "Camera", "Camera"),
                     ]
 
 CHARACTER_GENERATION = {

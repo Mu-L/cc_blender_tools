@@ -1309,7 +1309,7 @@ def apply_all_physics(chr_cache):
     props = vars.props()
 
     if chr_cache:
-        utils.log_info(f"Adding all Physics modifiers to: {chr_cache.character_name}")
+        utils.log_info(f"Adding all Physics modifiers to: {chr_cache.get_name()}")
         utils.log_indent()
         arm = chr_cache.get_armature()
         objects = chr_cache.get_all_objects(include_armature=False,
@@ -1393,7 +1393,7 @@ def arrange_physics_modifiers(obj):
 
 def remove_all_physics(chr_cache):
     if chr_cache:
-        utils.log_info(f"Removing all Physics modifiers from: {chr_cache.character_name}")
+        utils.log_info(f"Removing all Physics modifiers from: {chr_cache.get_name()}")
         utils.log_indent()
         objects_processed = []
         for obj in chr_cache.get_cache_objects():
@@ -1600,27 +1600,27 @@ def set_physics_settings(op, context, param):
         if chr_cache:
             restore_collision_proxy_view(context, chr_cache)
             disable_physics(chr_cache)
-            op.report({'INFO'}, f"Physics disabled for {chr_cache.character_name}")
+            op.report({'INFO'}, f"Physics disabled for {chr_cache.get_name()}")
 
     elif param == "ENABLE_PHYSICS":
         if chr_cache:
             restore_collision_proxy_view(context, chr_cache)
             enable_physics(chr_cache)
             reset_physics(context)
-            op.report({'INFO'}, f"Physics enabled for {chr_cache.character_name}")
+            op.report({'INFO'}, f"Physics enabled for {chr_cache.get_name()}")
 
     elif param == "REMOVE_PHYSICS":
         if chr_cache:
             restore_collision_proxy_view(context, chr_cache)
             remove_all_physics(chr_cache)
-            op.report({'INFO'}, f"Physics removed for {chr_cache.character_name}")
+            op.report({'INFO'}, f"Physics removed for {chr_cache.get_name()}")
 
     elif param == "APPLY_PHYSICS":
         if chr_cache:
             restore_collision_proxy_view(context, chr_cache)
             apply_all_physics(chr_cache)
             reset_physics(context)
-            op.report({'INFO'}, f"Physics applied to {chr_cache.character_name}")
+            op.report({'INFO'}, f"Physics applied to {chr_cache.get_name()}")
 
     elif param == "PHYSICS_INC_STRENGTH":
         strength = float(round(props.physics_paint_strength * 10)) / 10.0

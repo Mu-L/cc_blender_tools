@@ -247,7 +247,7 @@ def save_skin_gen_bake(chr_cache, body, layer_target):
     utils.log_info(f"Texture save path: {bake_dir}")
     os.makedirs(bake_dir, exist_ok=True)
 
-    character_name = chr_cache.character_name
+    character_name = chr_cache.get_name()
 
     if body:
         for mat in body.data.materials:
@@ -398,7 +398,7 @@ def setup_bake_nodes(context, chr_cache, multires_mesh, layer_target):
         bsdf_node, shader_node, mixer_node = nodeutils.get_shader_nodes(mat, shader_name)
 
         # base the image name on the character name
-        character_name = chr_cache.character_name
+        character_name = chr_cache.get_name()
         mix_node_name = f"{layer_target}_{LAYER_MIX_SUFFIX}"
         sculpt_mix_node_name = f"{LAYER_TARGET_SCULPT}_{LAYER_MIX_SUFFIX}"
         detail_mix_node_name = f"{LAYER_TARGET_DETAIL}_{LAYER_MIX_SUFFIX}"
@@ -557,7 +557,7 @@ def flatten_bake_layers(context, chr_cache):
     prefs = vars.prefs()
 
     bake_dir = get_bake_dir(chr_cache)
-    prefix = chr_cache.character_name + "_Flattened"
+    prefix = chr_cache.get_name() + "_Flattened"
 
     context_obj = utils.get_context_mesh(context)
     if context_obj:
@@ -774,7 +774,7 @@ def add_multires_mesh(context, chr_cache, layer_target, sub_target = "ALL"):
     body_id = body_cache.object_id if body_cache else None
     body_objects = chr_cache.get_objects_of_type("BODY")
     cache_objects = chr_cache.get_cache_objects()
-    is_body_type = body_id and utils.get_rl_object_id(context_object) == body_id
+    is_body_type = body_id and utils.get_rl_id(context_object) == body_id
 
     multires_mesh = None
     multires_source = None

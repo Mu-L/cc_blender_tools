@@ -58,7 +58,7 @@ def check_valid_export_fbx(chr_cache, objects):
 
     if standard and not arm:
         if chr_cache:
-            message = f"ERROR: Character {chr_cache.character_name} has no armature!"
+            message = f"ERROR: Character {chr_cache.get_name()} has no armature!"
         else:
             message = f"ERROR: Character has no armature!"
         report.append(message)
@@ -1712,26 +1712,28 @@ def export_arp(file_path, arm, objects):
 
 
 def obj_export(file_path, use_selection=False, use_animation=False, global_scale=100,
-                          use_vertex_colors=False, use_vertex_groups=False, apply_modifiers=True,
-                          keep_vertex_order=False, use_materials=False):
-    if utils.B330():
-        bpy.ops.wm.obj_export(filepath=file_path,
-                              global_scale=global_scale,
-                              export_selected_objects=use_selection,
-                              export_animation=use_animation,
-                              export_materials=use_materials,
-                              export_colors=use_vertex_colors,
-                              export_vertex_groups=use_vertex_groups,
-                              apply_modifiers=apply_modifiers)
-    else:
-        bpy.ops.export_scene.obj(filepath=file_path,
-                                 global_scale=global_scale,
-                                 use_selection=use_selection,
-                                 use_materials=use_materials,
-                                 use_animation=use_animation,
-                                 use_vertex_groups=use_vertex_groups,
-                                 use_mesh_modifiers=apply_modifiers,
-                                 keep_vertex_order=keep_vertex_order)
+                          use_vertex_colors=False, use_object_groups=True,
+                          use_material_groups=False, use_vertex_groups=False,
+                          apply_modifiers=True, use_materials=False):
+    bpy.ops.wm.obj_export(filepath=file_path,
+                          export_selected_objects=use_selection,
+                          global_scale=global_scale,
+                          forward_axis="NEGATIVE_Z",
+                          up_axis="Y",
+                          export_uv=True,
+                          export_normals=True,
+                          export_colors=use_vertex_colors,
+                          export_curves_as_nurbs=False,
+                          export_triangulated_mesh=False,
+                          apply_modifiers=apply_modifiers,
+                          apply_transform=True,
+                          export_object_groups=use_object_groups,
+                          export_material_groups=use_material_groups,
+                          export_vertex_groups=use_vertex_groups,
+                          export_smooth_groups=False,
+                          export_materials=use_materials,
+                          export_animation=use_animation,
+                          )
 
 
 def export_standard(self, context, chr_cache, file_path, include_selected):
@@ -1799,7 +1801,7 @@ def export_standard(self, context, chr_cache, file_path, include_selected):
         if not os.path.exists(file_path):
             custom_export = False
 
-        # proceed with normal export
+        # proceed with standard export
         if not custom_export:
             bpy.ops.export_scene.fbx(filepath=file_path,
                     global_scale=1.0,
@@ -1808,6 +1810,7 @@ def export_standard(self, context, chr_cache, file_path, include_selected):
                     bake_anim = export_anim,
                     bake_anim_simplify_factor=self.animation_simplify,
                     add_leaf_bones = False,
+
                     mesh_smooth_type = ("FACE" if self.export_face_smoothing else "OFF"),
                     use_mesh_modifiers = False)
 
@@ -1855,13 +1858,7 @@ def export_standard(self, context, chr_cache, file_path, include_selected):
                 utils.unhide(p.object)
                 p.object.select_set(True)
 
-        obj_export(file_path, use_selection=True,
-                              global_scale=100,
-                              use_materials=False,
-                              keep_vertex_order=True,
-                              use_vertex_colors=True,
-                              use_vertex_groups=True,
-                              apply_modifiers=True)
+        obj_export(file_path, use_selection=True)
 
         #export_copy_obj_key(chr_cache, dir, name)
         export_copy_asset_file(chr_cache, dir, name, ".ObjKey", chr_cache.get_import_key_file())
@@ -2351,13 +2348,8 @@ def export_as_accessory(file_path, filename_ext):
                 )
     elif utils.is_file_ext(ext, "OBJ"):
         obj_export(file_path, use_selection=True,
-                              global_scale=100,
-                              use_animation=False,
                               use_materials=True,
-                              keep_vertex_order=True,
-                              use_vertex_colors=True,
-                              use_vertex_groups=False,
-                              apply_modifiers=True)
+                              use_vertex_colors=True)
 
     # restore selection
     bpy.ops.object.select_all(action='DESELECT')
@@ -2374,13 +2366,8 @@ def export_as_replace_mesh(file_path):
     state = utils.store_mode_selection_state()
 
     obj_export(file_path, use_selection=True,
-                          global_scale=100,
-                          use_animation=False,
                           use_materials=True,
-                          keep_vertex_order=True,
-                          use_vertex_colors=True,
-                          use_vertex_groups=False,
-                          apply_modifiers=True)
+                          use_vertex_colors=True)
 
     # restore selection
     utils.restore_mode_selection_state(state)

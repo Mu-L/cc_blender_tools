@@ -274,6 +274,7 @@ def add_wrinkle_mappings(mat, node, body_obj, mat_json):
 
 def add_wrinkle_node_driver(mat, node, socket_name, obj, expr_macro : str, wrinkle_defs, overall_weight):
 
+    source_macro = expr_macro
     s = expr_macro.find(r"{")
     if s == -1:
         utils.log_error(f"No braces in wrinkle macro expression! {expr_macro}")
@@ -297,6 +298,10 @@ def add_wrinkle_node_driver(mat, node, socket_name, obj, expr_macro : str, wrink
 
     socket: bpy.types.NodeSocket = node.inputs[socket_name]
     expr_code = f"{WRINKLE_STRENGTH_VAR} * ({expr_macro})"
+    if len(expr_code) >= 255:
+        utils.log_error(f"wrinkle driver ({socket_name}, {source_macro}) too long: {expr_code}")
+    else:
+        utils.log_info(f"wrinkle driver ({len(expr_code)}) ({socket_name}, {source_macro}) OK: {expr_code}")
     driver = drivers.make_driver(socket, "default_value", "SCRIPTED", expr_code)
 
     # global vars

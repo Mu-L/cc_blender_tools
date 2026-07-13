@@ -2092,15 +2092,21 @@ def has_data_path(obj: bpy.types.Object, path: str):
 
 
 def get_data_path_object_name(data_path: str):
-    if data_path.startswith("pose.bones["):
-        start = data_path.find('"', 0) + 1
-        end = data_path.find('"', start)
-        return data_path[start:end]
-    elif data_path.startswith("key_blocks["):
-        start = data_path.find('"', 0) + 1
-        end = data_path.find('"', start)
-        return data_path[start:end]
-    return ""
+    try:
+        if data_path.startswith("pose.bones["):
+            start = data_path.find('"', 0) + 1
+            end = data_path.find('"', start)
+            return data_path[start:end]
+        elif data_path.startswith("key_blocks["):
+            start = data_path.find('"', 0) + 1
+            end = data_path.find('"', start)
+            return data_path[start:end]
+        else:
+            names = data_path.split(".")
+            last = names[-1].replace("_", " ")
+            return last.title()
+    except:
+        return ""
 
 
 def copy_action(action: bpy.types.Action, new_name, reuse=False):
@@ -2141,13 +2147,17 @@ def make_action_slot(action, slot_type, slot_name):
     return None
 
 
-def get_action_slot(action, slot_type=None, slot_id=None):
+def get_action_slot(action: bpy.types.Action, slot_type: str=None, slot_id=None):
     if action and B440():
         for slot in action.slots:
+            print(f"slot.target_id_type={slot.target_id_type}, slot.identifier={slot.identifier} == slot_type={slot_type}, slot_id={slot_id}")
             if slot_type and slot.target_id_type == slot_type:
                 return slot
             if slot_id and slot.identifier == slot_id:
                 return slot
+            # fall back to creating a slot if the type is supplied
+            if slot_type:
+                action.slots.new(slot_type, slot_id if slot_id else slot_type.capitalize())
     return None
 
 
@@ -2194,21 +2204,15 @@ def set_action_slot(obj, action, slot=None):
        the first action slot with the matching slot_type"""
     if obj and action and B440():
         if slot:
-            try:
-                obj.animation_data.action_slot = slot
-            except Exception as e:
-                log_error(f"Unable to set action slot {action} / {slot}", e)
+            obj.animation_data.action_slot = slot
             return True
         else:
             slot_type = get_slot_type_for(obj)
             slot = get_action_slot(action, slot_type=slot_type)
             if slot:
-                try:
-                    obj.animation_data.action_slot = slot
-                except:
-                    log_error(f"Unable to set action slot by type: {slot_type} / {action} / {slot}")
-        return False
-    return True
+                obj.animation_data.action_slot = slot
+                return True
+    return False
 
 
 def safe_get_action(obj) -> bpy.types.Action:
@@ -2236,17 +2240,15 @@ def safe_get_action_slot(obj) -> bpy.types.Action:
 def safe_set_action(obj, action, create=True, slot=None):
     result = False
     if obj:
-        try:
+        #try:
             if create and not obj.animation_data:
                 obj.animation_data_create()
             if obj.animation_data:
                 obj.animation_data.action = action
-                set_action_slot(obj, action, slot)
-                result = True
-        except Exception as e:
-            action_name = action.name if action else "None"
-            log_error(f"Unable to set action {action_name} to {obj.name}", e)
-            result = False
+                result = set_action_slot(obj, action, slot)
+        #except Exception as e:
+        #    action_name = action.name if action else "None"
+        #    log_error(f"Unable to set action {action_name} to {obj.name}", e)
     return result
 
 
@@ -2502,6 +2504,9 @@ def B440():
 
 def B500():
     return is_blender_version("5.0.0")
+
+def B510():
+    return is_blender_version("5.1.0")
 
 VER_CACHE = {}
 def is_blender_version(version: str, test = "GTE"):
@@ -2803,6 +2808,21 @@ def ui_three_column_layout(layout: bpy.types.UILayout, widths: tuple, align=Fals
     col_3 = split_2.column(align=align)
     col_4 = split_2.column(align=align)
     return col_1, col_3, col_4
+
+def ui_four_column_layout(layout: bpy.types.UILayout, widths: tuple, align=False):
+    factor_1 = widths[0] / (widths[0] + widths[1] + widths[2] + widths[3])
+    factor_2 = widths[1] / (widths[1] + widths[2] + widths[3])
+    factor_3 = widths[2] / (widths[2] + widths[3])
+    split_1 = layout.split(factor=factor_1, align=align)
+    col_1 = split_1.column(align=align)
+    col_2 = split_1.column(align=align)
+    split_2 = col_2.split(factor=factor_2, align=align)
+    col_3 = split_2.column(align=align)
+    col_4 = split_2.column(align=align)
+    split_3 = col_4.split(factor=factor_3, align=align)
+    col_5 = split_3.column(align=align)
+    col_6 = split_3.column(align=align)
+    return col_1, col_3, col_5, col_6
 
 
 def ui_fake_drop_down(layout: bpy.types.UILayout, label: str,
@@ -3109,7 +3129,7 @@ def get_rl_link_id(obj):
     return None
 
 
-def set_rl_object_id(obj, new_id=None):
+def set_rl_id(obj, new_id=None):
     if new_id is None:
         new_id = generate_random_id(20)
     if obj:
@@ -3122,12 +3142,19 @@ def set_rl_object_id(obj, new_id=None):
     return new_id
 
 
-def get_rl_object_id(obj):
+def get_rl_id(obj):
     if object_exists(obj):
-        if obj.type == "ARMATURE" and "rl_armature_id" in obj:
+        if "rl_armature_id" in obj:
             return obj["rl_armature_id"]
         if "rl_object_id" in obj:
             return obj["rl_object_id"]
+    if action_exists(obj):
+        if "rl_armature_id" in obj:
+            return obj["rl_armature_id"]
+        if "rl_object_id" in obj:
+            return obj["rl_object_id"]
+        if "rl_rlx_id" in obj:
+            return obj["rl_rlx_id"]
     return None
 
 
@@ -3137,6 +3164,24 @@ def merge(a: list, b: list):
         if i not in c:
             c.append(i)
     return c
+
+
+def append_if(l: list, *args):
+    def append_if_item(l, a):
+        T = type(a)
+        if T is tuple or T is list:
+            for b in a:
+                append_if_item(l, b)
+        elif a is not None:
+            l.append(a)
+    for a in args:
+        append_if_item(l, a)
+
+
+def list_if(*args) -> list:
+    l = []
+    append_if(l, *args)
+    return l
 
 
 def fix_texture_rel_path(rel_path: str):
@@ -3247,6 +3292,21 @@ def smallest_index(items: list):
             smallest_value = value
             index = i
     return index
+
+
+def any_in(a: list, b: list):
+    for c in a:
+        if c in b:
+            return True
+    return False
+
+
+def first(a: list):
+    if a is not None:
+        for i in a:
+            if i is not None:
+                return i
+    return None
 
 
 def safe_free_bake(point_cache):

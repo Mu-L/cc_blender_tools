@@ -1556,22 +1556,24 @@ def build_expression_constraint_add_driver(chr_cache, rigify_rig, objects, head,
 
     for key in source_keys:
         source_obj = get_expression_shape_key_source_object(objects, head, key)
-        var_name = f"V{vidx}"
-        vidx += 1
-        var_def = drivers.make_shape_key_var_def(var_name, source_obj, key)
-        var_defs.append(var_def)
+        if source_obj:
+            var_name = f"V{vidx}"
+            vidx += 1
+            var_def = drivers.make_shape_key_var_def(var_name, source_obj, key)
+            if var_def:
+                var_defs.append(var_def)
+                var_expression = get_expression_constraint_var_expression(var_name, points)
+                if expression:
+                    expression += "*"
+                expression += var_expression
+        else:
+            utils.log_error(f"Unable to find source object for shape key: {key} in {[o.name for o in objects]}")
 
-        var_expression = get_expression_constraint_var_expression(var_name, points)
-
-        if expression:
-            expression += "*"
-        expression += var_expression
-
-    driver_def = ["SCRIPTED", expression]
-
-    for obj in objects:
-        if utils.object_has_shape_key(obj, target_key):
-            drivers.add_shape_key_driver(rigify_rig, obj, target_key, driver_def, var_defs, 1.0)
+    if expression:
+        driver_def = ["SCRIPTED", expression]
+        for obj in objects:
+            if utils.object_has_shape_key(obj, target_key):
+                drivers.add_shape_key_driver(rigify_rig, obj, target_key, driver_def, var_defs, 1.0)
 
 
 def apply_control_limit_constraint_drivers(rigify_rig, control_name, control_def, target_key, expression, var_defs,
@@ -1619,45 +1621,46 @@ def build_expression_constraint_limit_driver(chr_cache, rigify_rig, objects, hea
 
     for key in source_keys:
         source_obj = get_expression_shape_key_source_object(objects, head, key)
-        var_name = f"lv{vidx}"
-        vidx += 1
-        var_def = drivers.make_shape_key_var_def(var_name, source_obj, key)
-        var_defs.append(var_def)
+        if source_obj:
+            var_name = f"lv{vidx}"
+            vidx += 1
+            var_def = drivers.make_shape_key_var_def(var_name, source_obj, key)
+            if var_def:
+                var_defs.append(var_def)
+                var_expression = get_expression_constraint_var_expression(var_name, points)
+                if limit_expression:
+                    limit_expression += "*"
+                limit_expression += var_expression
 
-        var_expression = get_expression_constraint_var_expression(var_name, points)
+    if limit_expression:
+        # limit facerig control movement ranges
+        if prefs.rigify_limit_control_range:
+            FACERIG_CONFIG = get_facerig_config(chr_cache)
+            for control_name, control_def in FACERIG_CONFIG.items():
+                if control_def["widget_type"] == "slider":
+                    apply_control_limit_constraint_drivers(rigify_rig, control_name, control_def,
+                                                        target_key, limit_expression, var_defs,
+                                                        "_line", "", "y")
+                elif control_def["widget_type"] == "rect":
+                    apply_control_limit_constraint_drivers(rigify_rig, control_name, control_def,
+                                                        target_key, limit_expression, var_defs,
+                                                        "_box", "x", "x")
+                    apply_control_limit_constraint_drivers(rigify_rig, control_name, control_def,
+                                                        target_key, limit_expression, var_defs,
+                                                        "_box", "y", "y")
 
-        if limit_expression:
-            limit_expression += "*"
-        limit_expression += var_expression
-
-    # limit facerig control movement ranges
-    if prefs.rigify_limit_control_range:
-        FACERIG_CONFIG = get_facerig_config(chr_cache)
-        for control_name, control_def in FACERIG_CONFIG.items():
-            if control_def["widget_type"] == "slider":
-                apply_control_limit_constraint_drivers(rigify_rig, control_name, control_def,
-                                                    target_key, limit_expression, var_defs,
-                                                    "_line", "", "y")
-            elif control_def["widget_type"] == "rect":
-                apply_control_limit_constraint_drivers(rigify_rig, control_name, control_def,
-                                                    target_key, limit_expression, var_defs,
-                                                    "_box", "x", "x")
-                apply_control_limit_constraint_drivers(rigify_rig, control_name, control_def,
-                                                    target_key, limit_expression, var_defs,
-                                                    "_box", "y", "y")
-
-    # apply a min(expression, limit_expression) to existing shape key value driver
-    # (driving the shape key max value has no effect)
-    for obj in objects:
-        if utils.object_has_shape_key(obj, target_key):
-            driver: bpy.types.Driver = drivers.get_shape_key_driver(obj, target_key)
-            if driver and driver.expression:
-                driver_expression = driver.expression
-                drivers.add_driver_var_defs(driver, var_defs)
-                new_expression = f"min({driver_expression}, {limit_expression})"
-                driver.expression = new_expression
-            else:
-                utils.log_warn(f"NO DRIVER: {obj.name} {target_key}")
+        # apply a min(expression, limit_expression) to existing shape key value driver
+        # (driving the shape key max value has no effect)
+        for obj in objects:
+            if utils.object_has_shape_key(obj, target_key):
+                driver: bpy.types.Driver = drivers.get_shape_key_driver(obj, target_key)
+                if driver and driver.expression:
+                    driver_expression = driver.expression
+                    drivers.add_driver_var_defs(driver, var_defs)
+                    new_expression = f"min({driver_expression}, {limit_expression})"
+                    driver.expression = new_expression
+                else:
+                    utils.log_warn(f"NO DRIVER: {obj.name} {target_key}")
 
 
 def build_expression_constraint_drivers(chr_cache, rigify_rig):
@@ -1883,8 +1886,8 @@ def generate_arkit_proxy(chr_cache):
             chr_collections = utils.get_object_scene_collections(rigify_rig)
 
             objects = lib.get_object(["RL_ARKit_Proxy", "RL_ARKit_Proxy_Head"])
-            rig_name = f"{chr_cache.character_name}_ARKit_Proxy"
-            mesh_name = f"{chr_cache.character_name}_ARKit_Proxy_Head"
+            rig_name = f"{chr_cache.get_name()}_ARKit_Proxy"
+            mesh_name = f"{chr_cache.get_name()}_ARKit_Proxy_Head"
             proxy_rig = None
             proxy_mesh = None
             for obj in objects:
@@ -1908,7 +1911,7 @@ def generate_arkit_proxy(chr_cache):
             build_arkit_proxy_drivers(chr_cache, rigify_rig, proxy_rig, proxy_mesh)
 
             wgt_collection = rigutils.get_widget_rig_collection(chr_cache)
-            wgt_root = bones.make_root_widget(f"WGT-{chr_cache.character_name}_rig_arkit_proxy_root", 3.25)
+            wgt_root = bones.make_root_widget(f"WGT-{chr_cache.get_name()}_rig_arkit_proxy_root", 3.25)
             if wgt_collection:
                 utils.remove_from_scene_collections(wgt_root)
                 bones.add_widget_to_collection(wgt_root, wgt_collection)
@@ -2076,8 +2079,8 @@ def load_csv(chr_cache, file_path):
             facial_profile, viseme_profile = chr_cache.get_facial_profile()
             if facial_profile in facerig_data.ARKIT_SHAPE_KEY_TARGETS:
                 keys = facerig_data.ARKIT_SHAPE_KEY_TARGETS[facial_profile].keys()
-                key_action = utils.make_action(f"{chr_cache.character_name}_ARKit_Proxy_Head", slot_type="KEY", clear=True, reuse=True)
-                arm_action = utils.make_action(f"{chr_cache.character_name}_ARKit_Proxy", slot_type="OBJECT", clear=True, reuse=True)
+                key_action = utils.make_action(f"{chr_cache.get_name()}_ARKit_Proxy_Head", slot_type="KEY", clear=True, reuse=True)
+                arm_action = utils.make_action(f"{chr_cache.get_name()}_ARKit_Proxy", slot_type="OBJECT", clear=True, reuse=True)
                 key_channel = utils.get_action_channelbag(key_action, slot_type="KEY")
                 if key_channel:
                     for key in keys:

@@ -129,10 +129,13 @@ class LinkActor():
             self.object = obj_or_chr_cache
             rl_name = utils.get_prop(obj_or_chr_cache, "rl_name")
             self.name = rl_name if rl_name else obj_or_chr_cache.name
+            # force create an RLX Cache for staging cache
+            if self.object.type == "LIGHT" or self.object.type == "CAMERA":
+                self.get_rlx_cache(create=True)
         else:
             self.object = None
             self.chr_cache = obj_or_chr_cache
-            self.name = obj_or_chr_cache.character_name
+            self.name = obj_or_chr_cache.get_name()
         self.bones = []
         self.meshes = []
         self.id_tree = None
@@ -150,19 +153,9 @@ class LinkActor():
     def get_chr_cache(self):
         return self.chr_cache
 
-    def get_import_modes(self) -> Tuple[str, str]:
-        """return (action_mode, frame_mode)\n
-           action_mode = {"NEW", "REPLACE", "BLEND"}\n
-           frame_mode = {"START", "CURRENT", "MATCH"}
-        """
-        chr_cache = self.get_chr_cache()
-        if chr_cache:
-            return chr_cache.action_options.get_action_mode(), chr_cache.action_options.get_frame_mode()
-        else:
-            props = vars.props()
-            action_mode = props.action_options.get_action_mode()
-            frame_mode = props.action_options.get_frame_mode()
-            return action_mode, frame_mode
+    def get_rlx_cache(self, create=False):
+        props = vars.props()
+        return props.get_staging_cache(self.object, create=create)
 
     def get_link_id(self):
         if self.object:
@@ -195,11 +188,11 @@ class LinkActor():
         if chr_cache:
             actor_link_id = chr_cache.link_id
             if not actor_link_id:
-                utils.log_info(f"Assigning actor link_id: {chr_cache.character_name}: {link_id}")
+                utils.log_info(f"Assigning actor link_id: {chr_cache.get_name()}: {link_id}")
                 chr_cache.set_link_id(link_id)
                 return
             if link_id not in self.alias and actor_link_id != link_id:
-                utils.log_info(f"Assigning actor alias: {chr_cache.character_name}: {link_id}")
+                utils.log_info(f"Assigning actor alias: {chr_cache.get_name()}: {link_id}")
                 self.alias.append(link_id)
                 return
 
@@ -234,7 +227,7 @@ class LinkActor():
             if obj.type == "LIGHT" or obj.type == "CAMERA":
                 if not search_type or (obj.type == search_type):
                     obj_link_id = utils.get_rl_link_id(obj)
-                    if obj_link_id is not None and link_id == obj_link_id:
+                    if obj_link_id is not None and link_id is not None and link_id == obj_link_id:
                         actor = LinkActor(obj)
                         utils.log_detail(f"Staging (Light/Camera) found by link_id: {actor.name} / {link_id}")
                         return actor
@@ -253,7 +246,7 @@ class LinkActor():
             chr_cache = props.find_character_by_name(search_name)
             if chr_cache:
                 if not search_type or LinkActor.chr_cache_type(chr_cache) == search_type:
-                    utils.log_detail(f"Chr found by name: {chr_cache.character_name} / {chr_cache.link_id} -> {link_id}")
+                    utils.log_detail(f"Chr found by name: {chr_cache.get_name()} / {chr_cache.link_id} -> {link_id}")
                     actor = LinkActor(chr_cache)
                     actor.add_alias(link_id)
                     return actor
@@ -272,7 +265,7 @@ class LinkActor():
                 if context_chr_cache and context_chr_cache.is_avatar():
                     chr_cache = context_chr_cache
             if chr_cache:
-                utils.log_detail(f"Falling back to first Chr Avatar: {chr_cache.character_name} / {chr_cache.link_id} -> {link_id}")
+                utils.log_detail(f"Falling back to first Chr Avatar: {chr_cache.get_name()} / {chr_cache.link_id} -> {link_id}")
                 actor = LinkActor(chr_cache)
                 actor.add_alias(link_id)
                 return actor
@@ -397,12 +390,12 @@ class LinkActor():
         self.name = new_name
         chr_cache = self.get_chr_cache()
         if chr_cache:
-            chr_cache.character_name = new_name
+            chr_cache.set_name(new_name)
 
     def update_link_id(self, new_link_id):
         chr_cache = self.get_chr_cache()
         if chr_cache:
-            utils.log_info(f"Assigning new link_id: {chr_cache.character_name}: {new_link_id}")
+            utils.log_info(f"Assigning new link_id: {chr_cache.get_name()}: {new_link_id}")
             chr_cache.set_link_id(new_link_id)
 
     def ready(self, require_cache=True):
@@ -460,9 +453,6 @@ class LinkData():
     sequence_type: str = None
     sequence_selection: List[bpy.types.Object] = None
     scene_current_frame: int = 0
-    #
-    sequence_action_mode: str = ""
-    sequence_frame_mode: str = ""
     #
     preview_shape_keys: bool = True
     preview_skip_frames: bool = False
@@ -663,7 +653,7 @@ def make_datalink_import_rig(actor: LinkActor, objects: list):
         utils.restore_render_visibility_state(RV)
         return chr_cache.rig_datalink_rig
 
-    rig_name = f"{chr_cache.character_name}_Link_Rig"
+    rig_name = f"{chr_cache.get_name()}_Link_Rig"
     utils.log_info(f"Creating datalink transfer rig: {rig_name}")
 
     # create pose armature
@@ -902,8 +892,6 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
     motion_id = "Pose" if LINK_DATA.sequence_type == "POSE" else "Sequence"
     chr_cache = actor.get_chr_cache()
 
-    action_mode, frame_mode = actor.get_import_modes()
-
     if actor and actor.get_type() == "LIGHT":
 
         # create keyframe cache for light animation sequences
@@ -933,6 +921,7 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
             light_cache["spot_blend"] = create_fcurves_cache(count, 1, [1])
             light_cache["spot_size"] = create_fcurves_cache(count, 1, [1])
             actor.set_cache(actor_cache)
+            actor.action_store_id = props.store_actions(actor.object)
 
         else:
             # when not setting keyframes remove all actions from the light
@@ -990,7 +979,7 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
         objects, none_objects = actor.get_sequence_objects()
         if rig:
             rig_id = rigutils.get_rig_id(rig)
-            rl_arm_id = utils.get_rl_object_id(rig)
+            rl_id = utils.get_rl_id(rig)
             use_slotted = prefs.use_action_slots()
             utils.log_info(f"Preparing Character Rig: {actor.name} {rig_id} / {len(actor.bones)} bones")
 
@@ -998,12 +987,12 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
 
                 # generate new action set data
                 # always import into a new action set, then decide what to do with it after writing the action
-                motion_id = rigutils.get_unique_set_motion_id(rig_id, motion_id, LINK_DATA.motion_prefix, slotted=use_slotted)
+                motion_id = rigutils.get_unique_set_motion_id(rig_id, motion_id, LINK_DATA.motion_prefix, slotted=use_slotted, rlob=rig)
                 set_id, set_generation = rigutils.generate_motion_set(rig, motion_id, LINK_DATA.motion_prefix)
 
                 # rig action
                 action = get_datalink_rig_action(rig, motion_id, slotted=use_slotted)
-                rigutils.add_motion_set_data(action, set_id, set_generation, arm_id=rl_arm_id, slotted=use_slotted)
+                rigutils.add_motion_set_data(action, set_id, set_generation, arm_id=rl_id, slotted=use_slotted)
                 utils.log_info(f"Preparing rig action: {action.name}")
 
                 # shape key actions
@@ -1021,7 +1010,7 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
                             utils.log_info(f"Preparing shape key action: {action_name} / {num_expressions}+{num_visemes} shape keys")
                             action = bpy.data.actions.new(action_name)
                             slot, channel = rigutils.add_action_key_slot_channelbag(action, obj)
-                            rigutils.add_motion_set_data(action, set_id, set_generation, obj_id=obj_id)
+                            rigutils.add_motion_set_data(action, set_id, set_generation, key_id=obj_id, arm_id=rl_id)
                             utils.safe_set_action(obj.data.shape_keys, action, slot=slot)
                             action.use_fake_user = LINK_DATA.use_fake_user
                     # remove actions from non sequence objects
@@ -1404,9 +1393,9 @@ def write_sequence_actions(actor: LinkActor, num_frames, start_frame):
                 utils.safe_set_action(obj.data.shape_keys, None)
 
             if rig_action:
-                action_mode, frame_mode = actor.get_import_modes()
                 rigutils.load_motion_set(rig, rig_action)
-                rigutils.finalize_motion_import(actor.get_chr_cache(), rig, rig_action, actor.action_store_id, action_mode)
+                rigutils.finalize_motion_import(actor.get_chr_cache(), rig, rig_action, actor.action_store_id,
+                                                overwrite=True)
 
         elif actor.get_type() == "LIGHT":
 
@@ -1428,8 +1417,8 @@ def write_sequence_actions(actor: LinkActor, num_frames, start_frame):
             utils.safe_set_action(light, ob_action, slot=ob_slot)
             utils.safe_set_action(light.data, light_action, slot=light_slot)
 
-            action_mode, frame_mode = actor.get_import_modes()
-            rigutils.finalize_rlx_import(light, [ob_action, light_action], actor.action_store_id, action_mode)
+            rlx_cache = actor.get_rlx_cache(create=True)
+            rigutils.finalize_rlx_import(rlx_cache, light, [ob_action, light_action], actor.action_store_id, overwrite=True)
 
         elif actor.get_type() == "CAMERA":
 
@@ -1449,8 +1438,8 @@ def write_sequence_actions(actor: LinkActor, num_frames, start_frame):
             utils.safe_set_action(camera, ob_action, slot=ob_slot)
             utils.safe_set_action(camera.data, cam_action, slot=cam_slot)
 
-            action_mode, frame_mode = actor.get_import_modes()
-            rigutils.finalize_rlx_import(camera, [ob_action, cam_action], actor.action_store_id, action_mode)
+            rlx_cache = actor.get_rlx_cache(create=True)
+            rigutils.finalize_rlx_import(rlx_cache, camera, [ob_action, cam_action], actor.action_store_id)
 
         actor.clear_cache()
 
@@ -3097,10 +3086,7 @@ class LinkService():
         offset = 0
         count, frame = struct.unpack_from("!II", pose_data, offset)
         frame = RLFA(frame)
-        opt_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
-        opt_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
-        if LINK_DATA.set_keyframes:
-            ensure_current_frame(opt_frame)
+        least_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
         LINK_DATA.sequence_current_frame = frame
         offset = 8
         actors = []
@@ -3124,6 +3110,14 @@ class LinkService():
                 objects = []
                 rig = None
                 is_prop = False
+
+            if actor:
+                opt_frame = LinkActor.get_sequence_frame(actor, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+                opt_start_frame = LinkActor.get_sequence_frame(actor, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+                least_frame = opt_frame if opt_frame < least_frame else least_frame
+            else:
+                opt_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+                opt_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
 
             # unpack rig transform
             tx,ty,tz,rx,ry,rz,rw,sx,sy,sz = struct.unpack_from("!ffffffffff", pose_data, offset)
@@ -3218,6 +3212,9 @@ class LinkService():
 
             if rig:
                 rig.pose.bones.update()
+
+        if LINK_DATA.set_keyframes:
+            ensure_current_frame(least_frame)
 
         return actors
 
@@ -3552,11 +3549,18 @@ class LinkService():
         else:
             actors = None
 
+        least_start_frame = LinkActor.get_sequence_frame(None, start_frame, start_frame, current_frame)
+        most_end_frame = LinkActor.get_sequence_frame(None, end_frame, start_frame, current_frame)
+        least_current_frame = LinkActor.get_sequence_frame(None, frame, start_frame, current_frame)
+
         if actors:
             for actor in actors:
                 opt_start_frame = LinkActor.get_sequence_frame(actor, start_frame, start_frame, current_frame)
                 opt_end_frame = LinkActor.get_sequence_frame(actor, end_frame, start_frame, current_frame)
                 opt_frame = LinkActor.get_sequence_frame(actor, frame, start_frame, current_frame)
+                least_start_frame = opt_start_frame if opt_start_frame < least_start_frame else least_start_frame
+                most_end_frame = opt_end_frame if opt_end_frame > most_end_frame else most_end_frame
+                least_current_frame = opt_frame if opt_frame < least_current_frame else least_current_frame
                 if expand_range:
                     if opt_start_frame < bpy.context.scene.frame_start:
                         bpy.context.scene.frame_start = opt_start_frame
@@ -3568,25 +3572,17 @@ class LinkService():
                     if opt_frame > bpy.context.scene.frame_end:
                         bpy.context.scene.frame_end = opt_frame
 
-            opt_start_frame = LinkActor.get_sequence_frame(actors[0], start_frame, start_frame, current_frame)
-            opt_end_frame = LinkActor.get_sequence_frame(actors[0], end_frame, start_frame, current_frame)
-            opt_frame = LinkActor.get_sequence_frame(actors[0], frame, start_frame, current_frame)
-        else:
-            opt_start_frame = LinkActor.get_sequence_frame(None, start_frame, start_frame, current_frame)
-            opt_end_frame = LinkActor.get_sequence_frame(None, end_frame, start_frame, current_frame)
-            opt_frame = LinkActor.get_sequence_frame(None, frame, start_frame, current_frame)
-
         if set_preview:
-            set_frame_range(opt_start_frame, opt_end_frame, preview=True)
+            set_frame_range(least_start_frame, most_end_frame, preview=True)
 
         if set_current:
-            set_frame(opt_frame)
+            set_frame(least_current_frame)
         elif set_start:
-            set_frame(opt_start_frame)
+            set_frame(least_start_frame)
         elif set_end:
-            set_frame(opt_end_frame)
+            set_frame(most_end_frame)
 
-        return opt_frame, opt_start_frame, opt_end_frame
+        return least_current_frame, least_start_frame, most_end_frame
 
     def receive_pose(self, data):
         props = vars.props()
@@ -3621,9 +3617,8 @@ class LinkService():
             if actor:
                 actors.append(actor)
 
-        opt_frame, opt_start_frame, opt_end_frame = \
-            self.get_actors_frame_range(None, frame, start_frame, end_frame, current_frame,
-                                        expand_frame=True, set_current=True)
+        self.get_actors_frame_range(actors, frame, start_frame, end_frame, current_frame,
+                                    expand_frame=True, set_current=True)
 
         # set pose frame
         update_link_status(f"Receiving Pose Frame: {frame}")
@@ -3642,9 +3637,6 @@ class LinkService():
         actors = self.decode_pose_frame_data(data)
         utils.log_info(f"Receive Pose Frame: {frame}")
 
-        opt_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
-        opt_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
-
         # force recalculate all transforms (lights and cameras seem to need this)
         bpy.context.view_layer.update()
         self.reposition_prop_meshes(actors)
@@ -3653,9 +3645,17 @@ class LinkService():
         update_link_status(f"Pose Frame: {frame}")
         self.select_actor_rigs(actors)
 
+        opt_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+        opt_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+
+        least_frame = opt_frame
+
         actor: LinkActor
         if LINK_DATA.set_keyframes:
             for actor in actors:
+                opt_frame = LinkActor.get_sequence_frame(actor, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+                opt_start_frame = LinkActor.get_sequence_frame(actor, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+                least_frame = opt_frame if opt_frame < least_frame else least_frame
                 if actor.ready(require_cache=LINK_DATA.set_keyframes):
                     if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
                         store_bone_cache_keyframes(actor, opt_frame, opt_start_frame)
@@ -3667,6 +3667,7 @@ class LinkService():
         # write pose action
         for actor in actors:
             if actor.ready(require_cache=LINK_DATA.set_keyframes):
+                opt_start_frame = LinkActor.get_sequence_frame(actor, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
                 if LINK_DATA.set_keyframes:
                     write_sequence_actions(actor, 1, opt_start_frame)
                 if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
@@ -3682,7 +3683,7 @@ class LinkService():
         LINK_DATA.sequence_type = None
         LINK_DATA.sequence_selection = None
         if LINK_DATA.set_keyframes:
-            bpy.context.scene.frame_current = opt_frame
+            bpy.context.scene.frame_current = least_frame
         utils.restore_mode_selection_state(state, include_frames=False)
 
         # doesn't work with existing actions, the pose is reset back to action after execution.
@@ -3726,9 +3727,8 @@ class LinkService():
             if actor:
                 actors.append(actor)
 
-        opt_frame, opt_start_frame, opt_end_frame = \
-            self.get_actors_frame_range(None, frame, start_frame, end_frame, current_frame,
-                                        expand_range=True, set_preview=True, set_start=True)
+        self.get_actors_frame_range(actors, frame, start_frame, end_frame, current_frame,
+                                    expand_range=True, set_preview=True, set_start=True)
 
         LINK_DATA.sequence_actors = actors
         LINK_DATA.sequence_type = "SEQUENCE"
@@ -3763,9 +3763,6 @@ class LinkService():
         actors = self.decode_pose_frame_data(data)
         utils.update_timer("DECODE")
 
-        opt_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
-        opt_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
-
         utils.mark_timer("REPOSITION")
         self.reposition_prop_meshes(actors)
         utils.update_timer("REPOSITION")
@@ -3786,6 +3783,8 @@ class LinkService():
         for actor in actors:
             if actor.ready(require_cache=LINK_DATA.set_keyframes):
                 if LINK_DATA.set_keyframes:
+                    opt_frame = LinkActor.get_sequence_frame(actor, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+                    opt_start_frame = LinkActor.get_sequence_frame(actor, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
                     if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
                         store_bone_cache_keyframes(actor, opt_frame, opt_start_frame)
                     elif actor.get_type() == "LIGHT":
@@ -3827,11 +3826,13 @@ class LinkService():
         else:
             update_link_status(f"Live Sequence Aborted!")
 
-        opt_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+        least_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
 
         # write actions
         utils.mark_timer("WRITE")
         for actor in actors:
+            opt_start_frame = LinkActor.get_sequence_frame(actor, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+            least_start_frame = opt_start_frame if opt_start_frame < least_start_frame else least_start_frame
             if LINK_DATA.set_keyframes:
                 write_sequence_actions(actor, num_frames, opt_start_frame)
             if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
@@ -4088,6 +4089,7 @@ class LinkService():
             character_type = character_types[i]
             file = name + ".rlx"
             rlx_path = self.get_remote_file(remote_id, base_path, file_override=file)
+            actor = LinkActor.find_actor(link_id, search_name=name, search_type=character_type)
 
             utils.log_info(f"Receive Light / Camera Import: {name} / {link_id} / {rlx_path}")
 
@@ -4096,6 +4098,7 @@ class LinkService():
                 utils.log_error(f"Invalid Import Path: {rlx_path}")
                 continue
 
+            opt_start_frame = LinkActor.get_sequence_frame(actor, start_frame, start_frame, current_frame)
             self.do_file_import(rlx_path, link_id, save_after_import, opt_start_frame)
 
     def receive_motion_import(self, data):
@@ -4140,13 +4143,13 @@ class LinkService():
             if chr_cache and LinkActor.chr_cache_type(chr_cache) == character_type:
                 link_id = chr_cache.link_id
                 if link_id:
-                    utils.log_info(f"Redirecting to active character: {chr_cache.character_name}")
+                    utils.log_info(f"Redirecting to active character: {chr_cache.get_name()}")
                     opt_frame, opt_start_frame, opt_end_frame = \
                         self.get_actors_frame_range(chr_cache, frame, start_frame, end_frame, current_frame,
                                                     expand_range=True, set_preview=True, set_start=True)
                     if prefs.datalink_confirm_mismatch:
                         bpy.ops.ccic.link_confirm_dialog("INVOKE_DEFAULT",
-                                                        message=f"Character {name} not found, do you want to apply the motion to the current character: {chr_cache.character_name}?",
+                                                        message=f"Character {name} not found, do you want to apply the motion to the current character: {chr_cache.get_name()}?",
                                                         mode="MOTION",
                                                         name=name,
                                                         filepath=fbx_path,
@@ -4183,7 +4186,7 @@ class LinkService():
                                           use_fake_user=LINK_DATA.use_fake_user)
             except Exception as e:
                 utils.log_error(f"Error importing {fbx_path}", e)
-            motion_rig = utils.get_active_object()
+            motion_rig = utils.first(utils.get_selected_armatures())
             if motion_rig:
                 self.replace_actor_motion(actor, motion_rig)
                 update_link_status(f"Motion Imported: {actor.name}")
@@ -4207,12 +4210,12 @@ class LinkService():
             actor_rig = actor.get_armature()
             chr_cache = actor.get_chr_cache()
             actor_rig_id = rigutils.get_rig_id(actor_rig)
-            arm_id = utils.get_rl_object_id(actor_rig)
+            rl_id = utils.get_rl_id(actor_rig)
             # store existing motion
             action_store_id = props.store_actions(actor_rig)
 
             # generate new action set data
-            motion_id = rigutils.get_unique_set_motion_id(actor_rig_id, motion_id, LINK_DATA.motion_prefix, slotted=use_slotted)
+            motion_id = rigutils.get_unique_set_motion_id(actor_rig_id, motion_id, LINK_DATA.motion_prefix, slotted=use_slotted, rlob=actor_rig)
             set_id, set_generation = rigutils.generate_motion_set(actor_rig, motion_id, LINK_DATA.motion_prefix)
 
             remove_actions = []
@@ -4227,7 +4230,7 @@ class LinkService():
                         update_link_status(f"Retargeting Motion...")
                         baked_action = rigutils.bake_rig_action_from_source(motion_rig, actor_rig)
                         baked_action.use_fake_user = LINK_DATA.use_fake_user
-                        rigutils.add_motion_set_data(baked_action, set_id, set_generation, arm_id=arm_id, slotted=use_slotted)
+                        rigutils.add_motion_set_data(baked_action, set_id, set_generation, arm_id=rl_id, slotted=use_slotted)
                         rigutils.set_armature_action_name(baked_action, actor_rig_id, motion_id, LINK_DATA.motion_prefix, slotted=use_slotted)
                         rigutils.copy_action_shape_key_channels(actor_rig, motion_rig_action, baked_action, fake_user=LINK_DATA.use_fake_user)
                         rigutils.delete_motion_set(motion_rig_action)
@@ -4245,13 +4248,16 @@ class LinkService():
                     if chr_cache.rigified:
                         update_link_status(f"Retargeting Motion...")
                         baked_action = rigging.adv_bake_retarget_to_rigify(None, chr_cache, motion_rig, motion_rig_action)
-                        baked_action.use_fake_user = LINK_DATA.use_fake_user
-                        rigutils.add_motion_set_data(baked_action, set_id, set_generation, arm_id=arm_id, slotted=use_slotted)
-                        rigutils.set_armature_action_name(baked_action, actor_rig_id, motion_id, LINK_DATA.motion_prefix, slotted=use_slotted)
-                        rigutils.copy_action_shape_key_channels(actor_rig, motion_rig_action, baked_action, fake_user=LINK_DATA.use_fake_user)
-                        rigutils.delete_motion_set(motion_rig_action)
-                        rigutils.load_motion_set(actor_rig, baked_action)
-                        incoming_motion_action = baked_action
+                        if baked_action:
+                            baked_action.use_fake_user = LINK_DATA.use_fake_user
+                            rigutils.add_motion_set_data(baked_action, set_id, set_generation, arm_id=rl_id, slotted=use_slotted)
+                            rigutils.set_armature_action_name(baked_action, actor_rig_id, motion_id, LINK_DATA.motion_prefix, slotted=use_slotted)
+                            rigutils.copy_action_shape_key_channels(actor_rig, motion_rig_action, baked_action, fake_user=LINK_DATA.use_fake_user)
+                            rigutils.delete_motion_set(motion_rig_action)
+                            rigutils.load_motion_set(actor_rig, baked_action)
+                            incoming_motion_action = baked_action
+                        else:
+                            utils.log_error(f"Unable to bake replacement action: {motion_rig} / {motion_rig_action}")
                     else:
                         actor_rig_action = utils.safe_get_action(actor_rig)
                         motion_rig_action.use_fake_user = LINK_DATA.use_fake_user
@@ -4265,8 +4271,7 @@ class LinkService():
                 utils.delete_armature_object(motion_rig)
 
             if actor_rig and incoming_motion_action:
-                action_mode, frame_mode = actor.get_import_modes()
-                rigutils.finalize_motion_import(actor.get_chr_cache(), actor_rig, incoming_motion_action, action_store_id, action_mode)
+                rigutils.finalize_motion_import(actor.get_chr_cache(), actor_rig, incoming_motion_action, action_store_id)
 
             utils.log_recess()
 
@@ -4363,7 +4368,6 @@ class LinkService():
         update_link_status(f"Receving Mesh Modify: {name}")
         if os.path.exists(obj_path):
             mss = utils.store_mode_selection_state()
-            print(mss)
             # remove old mesh modify
             remove = []
             for obj in bpy.data.objects:
@@ -4532,7 +4536,7 @@ class LinkService():
                         if temp_obj_cache.source_name in original_data:
                             utils.force_object_name(child, original_data[temp_obj_cache.source_name]["name"])
                             new_obj_cache.object_id = original_data[temp_obj_cache.source_name]["object_id"]
-                            utils.set_rl_object_id(child, new_obj_cache.object_id)
+                            utils.set_rl_id(child, new_obj_cache.object_id)
                         for mat in child.data.materials:
                             if utils.material_exists(mat):
                                 temp_mat_cache = temp_chr_cache.get_material_cache(mat)
@@ -4639,17 +4643,17 @@ class LinkService():
                         rigutils.delete_motion_set(temp_rig_action)
 
                 link_id = chr_cache.link_id
-                character_name = chr_cache.character_name
+                character_name = chr_cache.get_name()
                 rig_name = rig.name
                 rig_data_name = rig.data.name
-                rl_armature_id = utils.get_rl_object_id(rig)
+                rl_id = utils.get_rl_id(rig)
                 temp_chr_cache.set_link_id(link_id)
-                temp_chr_cache.character_name = character_name
+                temp_chr_cache.set_name(character_name)
 
-                utils.set_rl_object_id(temp_rig, rl_armature_id)
+                utils.set_rl_id(temp_rig, rl_id)
                 rig_obj_cache = temp_chr_cache.get_object_cache(temp_rig)
                 if rig_obj_cache:
-                    rig_obj_cache.object_id = rl_armature_id
+                    rig_obj_cache.object_id = rl_id
                 utils.force_object_name(temp_rig, rig_name)
                 utils.force_armature_name(temp_rig.data, rig_data_name)
 

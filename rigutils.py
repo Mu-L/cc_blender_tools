@@ -4795,7 +4795,6 @@ def blend_bone_curves(motion_channel, stored_channel,
         # evaluate the motion root transform at each frame ...
         for f, frame in enumerate(sorted_frames):
             motion_loc, motion_rot = evaluate_action_bone_transform_set(motion_transform_set, frame)
-            print(f, frame, motion_loc, motion_rot)
 
             # apply relative root:
             if is_root and (relative_root or current_root):
@@ -4809,8 +4808,6 @@ def blend_bone_curves(motion_channel, stored_channel,
             if use_blend or overwrite:
                 blend_strength = overall_strength if use_blend else 1.0
                 stored_loc, stored_rot = evaluate_action_bone_transform_set(stored_transform_set, frame)
-                print(f, frame, stored_loc, stored_rot)
-                print(frame, from_frame, to_frame)
                 if frame < from_frame or frame > to_frame:
                     blend_strength = 0
                 elif blend_in_frames > 0 and frame < (from_frame + blend_in_frames):

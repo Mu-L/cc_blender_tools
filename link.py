@@ -3570,18 +3570,18 @@ class LinkService():
         else:
             actors = None
 
-        least_start_frame = LinkActor.get_sequence_frame(None, start_frame, start_frame, current_frame)
-        most_end_frame = LinkActor.get_sequence_frame(None, end_frame, start_frame, current_frame)
-        least_current_frame = LinkActor.get_sequence_frame(None, frame, start_frame, current_frame)
+        least_start_frame = None
+        most_end_frame = None
+        least_current_frame = None
 
         if actors:
             for actor in actors:
                 opt_start_frame = LinkActor.get_sequence_frame(actor, start_frame, start_frame, current_frame)
                 opt_end_frame = LinkActor.get_sequence_frame(actor, end_frame, start_frame, current_frame)
                 opt_frame = LinkActor.get_sequence_frame(actor, frame, start_frame, current_frame)
-                least_start_frame = opt_start_frame if opt_start_frame < least_start_frame else least_start_frame
-                most_end_frame = opt_end_frame if opt_end_frame > most_end_frame else most_end_frame
-                least_current_frame = opt_frame if opt_frame < least_current_frame else least_current_frame
+                least_start_frame = opt_start_frame if least_start_frame is None or opt_start_frame < least_start_frame else least_start_frame
+                most_end_frame = opt_end_frame if most_end_frame is None or opt_end_frame > most_end_frame else most_end_frame
+                least_current_frame = opt_frame if least_current_frame is None or opt_frame < least_current_frame else least_current_frame
                 if expand_range:
                     if opt_start_frame < bpy.context.scene.frame_start:
                         bpy.context.scene.frame_start = opt_start_frame
@@ -3592,6 +3592,13 @@ class LinkService():
                         bpy.context.scene.frame_start = opt_frame
                     if opt_frame > bpy.context.scene.frame_end:
                         bpy.context.scene.frame_end = opt_frame
+
+        if least_start_frame is None:
+            least_start_frame = LinkActor.get_sequence_frame(None, start_frame, start_frame, current_frame)
+        if most_end_frame is None:
+            most_end_frame = LinkActor.get_sequence_frame(None, end_frame, start_frame, current_frame)
+        if least_current_frame is None:
+            least_current_frame = LinkActor.get_sequence_frame(None, frame, start_frame, current_frame)
 
         if set_preview:
             set_frame_range(least_start_frame, most_end_frame, preview=True)
@@ -3850,13 +3857,13 @@ class LinkService():
         else:
             update_link_status(f"Live Sequence Aborted!")
 
-        least_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+        least_start_frame = None
 
         # write actions
         utils.mark_timer("WRITE")
         for actor in actors:
             opt_start_frame = LinkActor.get_sequence_frame(actor, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
-            least_start_frame = opt_start_frame if opt_start_frame < least_start_frame else least_start_frame
+            least_start_frame = opt_start_frame if least_start_frame is None or opt_start_frame < least_start_frame else least_start_frame
             if LINK_DATA.set_keyframes:
                 write_sequence_actions(actor, num_frames, opt_start_frame)
             if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
@@ -3865,6 +3872,10 @@ class LinkService():
                 rigutils.update_prop_rig(actor.get_armature())
             elif actor.get_type() == "AVATAR":
                 rigutils.update_avatar_rig(actor.get_armature())
+
+        if least_start_frame is None:
+            least_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+
         utils.update_timer("WRITE")
 
         utils.log_timer("Frame", name="FRAME")

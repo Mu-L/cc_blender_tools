@@ -2734,7 +2734,7 @@ def motion_set_ui(layout: bpy.types.UILayout, chr_cache, rlx_cache, show_nla=Fal
     row.operator("ccic.rigutils", icon=icon, text="", depress=depress).param = param
 
     split = col.split(factor=0.5, align=True)
-    split.scale_y = 1.5
+    split.scale_y = 1.25
     col_1 = split.column(align=True)
     col_2 = split.column(align=True)
     row = col_1.row(align=True)
@@ -2742,11 +2742,11 @@ def motion_set_ui(layout: bpy.types.UILayout, chr_cache, rlx_cache, show_nla=Fal
     if set_generation != action_set_generation:
         row.enabled = False
     col_2.operator("ccic.rigutils", icon="REMOVE", text="Clear").param = "CLEAR_ACTION_SET"
-    col_1.separator()
-    col_2.separator()
     col_1.operator("ccic.rigutils", icon="PLUS", text="New").param = "NEW_ACTION_SET"
     col_2.operator("ccic.rigutils", icon="MODIFIER_ON", text="Clean").param = "CLEAN_ACTIONS"
-    col.operator("ccic.motion_blend", icon="MOD_ENVELOPE", text="Blend Motions").param="BLEND"
+    row = col.row(align=True)
+    row.scale_y = 2.0
+    row.operator("ccic.motion_blend", icon="MOD_ENVELOPE", text="Blend Motions").param="BLEND"
     col.enabled = chr_cache is not None or rlx_cache is not None
 
     if show_nla:

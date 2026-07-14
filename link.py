@@ -105,37 +105,25 @@ VISEME_NAME_MAP = {
 
 
 class LinkActor():
-    name: str = "Name"
-    chr_cache = None
-    object: bpy.types.Object = None
-    bones: list = None
-    meshes: list = None
-    id_tree: dict = None
-    id_map: dict = None
-    skin_meshes: dict = None
-    rig_bones: list = None
-    expressions: list = None
-    visemes: list = None
-    morphs: list = None
-    cache: dict = None
-    alias: list = None
-    shape_keys: dict = None
-    ik_store: dict = None
-    rigify_ik_fk: float = 0.0
-    action_store_id: str = ""
 
-    def __init__(self, obj_or_chr_cache):
-        if type(obj_or_chr_cache) is bpy.types.Object:
-            self.object = obj_or_chr_cache
-            rl_name = utils.get_prop(obj_or_chr_cache, "rl_name")
-            self.name = rl_name if rl_name else obj_or_chr_cache.name
-            # force create an RLX Cache for staging cache
+    def __init__(self, obj_or_actor_cache):
+        props = vars.props()
+        self.name = ""
+        self.object = None
+        self.actor_cache = None
+        if type(obj_or_actor_cache) is bpy.types.Object:
+            self.object = obj_or_actor_cache
+            rl_name = utils.get_prop(obj_or_actor_cache, "rl_name")
+            self.name = rl_name if rl_name else obj_or_actor_cache.name
             if self.object.type == "LIGHT" or self.object.type == "CAMERA":
-                self.get_rlx_cache(create=True)
+                # force create an RLX Cache for staging cache
+                self.actor_cache = self.get_rlx_cache(create=True)
+            else:
+                self.actor_cache = props.get_character_cache(self.object)
         else:
-            self.object = None
-            self.chr_cache = obj_or_chr_cache
-            self.name = obj_or_chr_cache.get_name()
+            self.object = obj_or_actor_cache.get_primary_object()
+            self.actor_cache = obj_or_actor_cache
+            self.name = obj_or_actor_cache.get_name()
         self.bones = []
         self.meshes = []
         self.id_tree = None
@@ -148,69 +136,93 @@ class LinkActor():
         self.cache = None
         self.alias = []
         self.shape_keys = {}
+        self.ik_store = None
+        self.rigify_ik_fk: float = 0.0
+        self.action_store_id: str = ""
         return
 
+    def get_actor_cache(self):
+        return self.actor_cache
+
     def get_chr_cache(self):
-        return self.chr_cache
+        props = vars.props()
+        if self.object:
+            if self.actor_cache.cache_type() in ["AVATAR", "PROP"]:
+                return self.actor_cache
+            if self.object.type == "ARMATURE" or self.object.type == "MESH":
+                self.actor_cache = props.get_character_cache(self.object)
+                return self.actor_cache
+        return None
 
     def get_rlx_cache(self, create=False):
         props = vars.props()
-        return props.get_staging_cache(self.object, create=create)
+        if self.object:
+            if self.actor_cache and self.actor_cache.cache_type() in ["LIGHT", "CAMERA"]:
+                return self.actor_cache
+            if self.object.type == "LIGHT" or self.object.type == "CAMERA":
+                self.actor_cache = props.get_staging_cache(self.object, create=create)
+                return self.actor_cache
+        return None
 
     def get_link_id(self):
         if self.object:
             return utils.get_rl_link_id(self.object)
-        elif self.chr_cache:
-            return self.chr_cache.get_link_id()
+        elif self.actor_cache:
+            return self.actor_cache.get_link_id()
         return None
 
+    def get_primary_object(self):
+        if self.actor_cache:
+            return self.actor_cache.get_primary_object()
+        return self.object
+
     def get_armature(self):
-        if self.chr_cache:
-            return self.chr_cache.get_armature()
+        if self.actor_cache:
+            return self.actor_cache.get_armature()
         return None
 
     def select(self):
-        if self.chr_cache:
-            self.chr_cache.select_all()
+        if self.actor_cache:
+            self.actor_cache.select_all()
         elif self.object:
             utils.try_select_object(self.object)
 
     def get_type(self):
         """AVATAR|PROP|LIGHT|CAMERA|NONE"""
-        if self.chr_cache:
-            return self.chr_cache_type(self.chr_cache)
+        if self.actor_cache:
+            return self.chr_cache_type(self.actor_cache)
         elif self.object:
             return self.object.type
         return "NONE"
 
     def add_alias(self, link_id):
-        chr_cache = self.get_chr_cache()
-        if chr_cache:
-            actor_link_id = chr_cache.link_id
+        actor_cache = self.get_actor_cache()
+        if actor_cache:
+            actor_link_id = actor_cache.link_id
             if not actor_link_id:
-                utils.log_info(f"Assigning actor link_id: {chr_cache.get_name()}: {link_id}")
-                chr_cache.set_link_id(link_id)
+                utils.log_info(f"Assigning actor link_id: {actor_cache.get_name()}: {link_id}")
+                actor_cache.set_link_id(link_id)
                 return
             if link_id not in self.alias and actor_link_id != link_id:
-                utils.log_info(f"Assigning actor alias: {chr_cache.get_name()}: {link_id}")
+                utils.log_info(f"Assigning actor alias: {actor_cache.get_name()}: {link_id}")
                 self.alias.append(link_id)
                 return
 
     @staticmethod
     def get_start_frame(actor: 'LinkActor', ccic_frame, blender_current):
         props = vars.props()
-        chr_cache = actor.get_chr_cache() if actor else None
-        if chr_cache:
-            return chr_cache.action_options.get_start_frame(ccic_frame, blender_current)
+        actor_cache = actor.get_actor_cache() if actor else None
+        if actor_cache:
+            return actor_cache.action_options.get_start_frame(ccic_frame, blender_current)
         else:
             return props.action_options.get_start_frame(ccic_frame, blender_current)
 
     @staticmethod
     def get_sequence_frame(actor: 'LinkActor', ccic_frame, ccic_frame_start, blender_current):
         props = vars.props()
-        chr_cache = actor.get_chr_cache() if actor else None
-        if chr_cache:
-            return chr_cache.action_options.get_sequence_frame(ccic_frame, ccic_frame_start, blender_current)
+        actor_cache = actor.get_actor_cache() if actor else None
+        if actor_cache:
+            return actor_cache.action_options.get_sequence_frame(ccic_frame, ccic_frame_start, blender_current)
         else:
             return props.action_options.get_sequence_frame(ccic_frame, ccic_frame_start, blender_current)
 
@@ -388,20 +400,20 @@ class LinkActor():
 
     def update_name(self, new_name):
         self.name = new_name
-        chr_cache = self.get_chr_cache()
-        if chr_cache:
-            chr_cache.set_name(new_name)
+        actor_cache = self.get_actor_cache()
+        if actor_cache:
+            actor_cache.set_name(new_name)
 
     def update_link_id(self, new_link_id):
-        chr_cache = self.get_chr_cache()
-        if chr_cache:
-            utils.log_info(f"Assigning new link_id: {chr_cache.get_name()}: {new_link_id}")
-            chr_cache.set_link_id(new_link_id)
+        actor_cache = self.get_actor_cache()
+        if actor_cache:
+            utils.log_info(f"Assigning new link_id: {actor_cache.get_name()}: {new_link_id}")
+            actor_cache.set_link_id(new_link_id)
 
     def ready(self, require_cache=True):
         if require_cache and not self.cache:
             return False
-        return (self.chr_cache and self.get_armature()) or self.object
+        return (self.actor_cache and self.get_armature()) or self.object
 
     def is_rigified(self):
         chr_cache = self.get_chr_cache()
@@ -891,11 +903,15 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
 
     motion_id = "Pose" if LINK_DATA.sequence_type == "POSE" else "Sequence"
     chr_cache = actor.get_chr_cache()
+    rigutils.ensure_motion_set(actor.get_primary_object(), motion_id, LINK_DATA.motion_prefix)
 
     if actor and actor.get_type() == "LIGHT":
 
         # create keyframe cache for light animation sequences
         if LINK_DATA.set_keyframes:
+
+            # store current actions for replacing or mixing
+            actor.action_store_id = props.store_actions(actor.object)
 
             rlx.prep_rlx_actions(actor, motion_id,
                                  timestamp=False,
@@ -921,7 +937,6 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
             light_cache["spot_blend"] = create_fcurves_cache(count, 1, [1])
             light_cache["spot_size"] = create_fcurves_cache(count, 1, [1])
             actor.set_cache(actor_cache)
-            actor.action_store_id = props.store_actions(actor.object)
 
         else:
             # when not setting keyframes remove all actions from the light
@@ -933,6 +948,9 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
 
         # create keyframe cache for camera animation sequences
         if LINK_DATA.set_keyframes:
+
+            # store current actions for replacing or mixing
+            actor.action_store_id = props.store_actions(actor.object)
 
             rlx.prep_rlx_actions(actor, motion_id,
                                  timestamp=False,
@@ -957,7 +975,6 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
             camera_cache["focus_distance"] = create_fcurves_cache(count, 1, [1])
             camera_cache["f_stop"] = create_fcurves_cache(count, 1, [2.8])
             actor.set_cache(actor_cache)
-            actor.action_store_id = props.store_actions(actor.object)
 
         else:
             # when not setting keyframes remove all actions from the camera
@@ -3086,7 +3103,7 @@ class LinkService():
         offset = 0
         count, frame = struct.unpack_from("!II", pose_data, offset)
         frame = RLFA(frame)
-        least_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+        least_frame = None
         LINK_DATA.sequence_current_frame = frame
         offset = 8
         actors = []
@@ -3114,10 +3131,11 @@ class LinkService():
             if actor:
                 opt_frame = LinkActor.get_sequence_frame(actor, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
                 opt_start_frame = LinkActor.get_sequence_frame(actor, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
-                least_frame = opt_frame if opt_frame < least_frame else least_frame
+                least_frame = opt_frame if least_frame is None or opt_frame < least_frame else least_frame
             else:
                 opt_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
                 opt_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
+                least_frame = opt_frame
 
             # unpack rig transform
             tx,ty,tz,rx,ry,rz,rw,sx,sy,sz = struct.unpack_from("!ffffffffff", pose_data, offset)
@@ -3212,6 +3230,9 @@ class LinkService():
 
             if rig:
                 rig.pose.bones.update()
+
+        if least_frame is None:
+            least_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
 
         if LINK_DATA.set_keyframes:
             ensure_current_frame(least_frame)
@@ -3648,14 +3669,14 @@ class LinkService():
         opt_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
         opt_start_frame = LinkActor.get_sequence_frame(None, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
 
-        least_frame = opt_frame
+        least_frame = None
 
         actor: LinkActor
         if LINK_DATA.set_keyframes:
             for actor in actors:
                 opt_frame = LinkActor.get_sequence_frame(actor, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
                 opt_start_frame = LinkActor.get_sequence_frame(actor, LINK_DATA.sequence_start_frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
-                least_frame = opt_frame if opt_frame < least_frame else least_frame
+                least_frame = opt_frame if least_frame is None or opt_frame < least_frame else least_frame
                 if actor.ready(require_cache=LINK_DATA.set_keyframes):
                     if actor.get_type() == "PROP" or actor.get_type() == "AVATAR":
                         store_bone_cache_keyframes(actor, opt_frame, opt_start_frame)
@@ -3663,6 +3684,9 @@ class LinkService():
                         store_light_cache_keyframes(actor, opt_frame, opt_start_frame)
                     elif actor.get_type() == "CAMERA":
                         store_camera_cache_keyframes(actor, opt_frame, opt_start_frame)
+
+        if least_frame is None:
+            least_frame = LinkActor.get_sequence_frame(None, frame, LINK_DATA.sequence_start_frame, LINK_DATA.scene_current_frame)
 
         # write pose action
         for actor in actors:

@@ -722,21 +722,27 @@ def is_rlx_motion(actions_or_set_id):
 
 
 def get_actions_frame_range(actions):
-    if not type(actions) is list:
-        actions = [actions]
-    action: bpy.types.Action = None
     frame_start = None
     frame_end = None
-    for action in actions:
-        start = int(action.frame_range[0])
-        end = int(action.frame_range[1])
-        if frame_start is None:
-            frame_start = start
-            frame_end = end
-        if start < frame_start:
-            frame_start = start
-        if end > frame_end:
-            frame_end = end
+    if actions:
+        if not type(actions) is list:
+            actions = [actions]
+        action: bpy.types.Action = None
+        for action in actions:
+            if action:
+                start = int(action.frame_range[0])
+                end = int(action.frame_range[1])
+                if frame_start is None:
+                    frame_start = start
+                if frame_end is None:
+                    frame_end = end
+                if start < frame_start:
+                    frame_start = start
+                if end > frame_end:
+                    frame_end = end
+    if frame_start is None or frame_end is None:
+        frame_start = 0
+        frame_end = 0
     return frame_start, frame_end
 
 
@@ -815,7 +821,7 @@ def load_motion_set(rig, action, move=False, temp=None, force=None):
     return arm_action
 
 
-def new_motion_set(rig: bpy.types.Object):
+def new_motion_set(rig: bpy.types.Object, motion_id=None, motion_prefix=""):
     prefs = vars.prefs()
 
     slotted = prefs.use_action_slots()
@@ -823,12 +829,13 @@ def new_motion_set(rig: bpy.types.Object):
     rl_id = utils.get_rl_id(rig)
     set_id = generate_set_id()
     set_generation = utils.get_prop(rig, "rl_set_generation")
-    motion_id = "New"
-    motion_id = get_unique_set_motion_id(rig_id, motion_id, "", slotted=slotted, rlob=rig)
+    if not motion_id:
+        motion_id = "New"
+    motion_id = get_unique_set_motion_id(rig_id, motion_id, motion_prefix, slotted=slotted, rlob=rig)
     if rig.type == "ARMATURE":
-        action_name = make_armature_action_name(rig_id, motion_id, "", slotted=slotted)
+        action_name = make_armature_action_name(rig_id, motion_id, motion_prefix, slotted=slotted)
     else:
-        action_name = make_rlx_action_name(rig_id, motion_id, "", slotted=slotted)
+        action_name = make_rlx_action_name(rig_id, motion_id, motion_prefix, slotted=slotted)
     action = bpy.data.actions.new(action_name)
     slot, channel = add_action_ob_slot_channelbag(action, rig)
     if rig.type == "ARMATURE":
@@ -847,6 +854,14 @@ def new_motion_set(rig: bpy.types.Object):
         utils.safe_set_action(rig.data, None, create=False)
     update_motion_set_index(action)
     return action
+
+
+def ensure_motion_set(rlob, motion_id="New", motion_prefix=""):
+    action = utils.safe_get_action(rlob)
+    if not action:
+        action = new_motion_set(rlob, motion_id, motion_prefix)
+        if action:
+            load_motion_set(rlob, action)
 
 
 def clear_motion_set(rig):
@@ -4315,12 +4330,13 @@ def finalize_rlx_import(rlx_cache, obj, actions, action_store_id, frame_start=No
                            overall_strength=opts.blend_strength)
 
         if overwrite:
-            stored_rig_action = props.fetch_stored_rig_action(action_store_id)
+            stored_action = props.fetch_stored_rig_action(action_store_id)
             # reload target (stored) motion set
-            load_motion_set(obj, stored_rig_action)
+            load_motion_set(obj, stored_action)
             # delete the source motion set
-            delete_motion_set(motion_action)
-            utils.log_info(f"Re-Loaded target motion set: {stored_rig_action.name}")
+            if motion_action and motion_action != stored_action:
+                delete_motion_set(motion_action)
+            utils.log_info(f"Re-Loaded target motion set: {stored_action.name}")
         else:
             # Do nothing else
             utils.log_info(f"Loaded new motion set: {motion_action.name}")
@@ -4397,7 +4413,8 @@ def finalize_motion_import(chr_cache, rig, motion_rig_action, action_store_id,
             # reload target (stored) motion set
             load_motion_set(rig, stored_rig_action)
             # delete the source motion set
-            delete_motion_set(motion_rig_action)
+            if motion_rig_action and motion_rig_action != stored_rig_action:
+                delete_motion_set(motion_rig_action)
             utils.log_info(f"Re-Loaded target motion set: {stored_rig_action.name}")
         else:
             # already loaded, do nothing else
@@ -4778,6 +4795,7 @@ def blend_bone_curves(motion_channel, stored_channel,
         # evaluate the motion root transform at each frame ...
         for f, frame in enumerate(sorted_frames):
             motion_loc, motion_rot = evaluate_action_bone_transform_set(motion_transform_set, frame)
+            print(f, frame, motion_loc, motion_rot)
 
             # apply relative root:
             if is_root and (relative_root or current_root):
@@ -4791,7 +4809,8 @@ def blend_bone_curves(motion_channel, stored_channel,
             if use_blend or overwrite:
                 blend_strength = overall_strength if use_blend else 1.0
                 stored_loc, stored_rot = evaluate_action_bone_transform_set(stored_transform_set, frame)
-
+                print(f, frame, stored_loc, stored_rot)
+                print(frame, from_frame, to_frame)
                 if frame < from_frame or frame > to_frame:
                     blend_strength = 0
                 elif blend_in_frames > 0 and frame < (from_frame + blend_in_frames):
@@ -6392,7 +6411,7 @@ class CCICMotionBlend(bpy.types.Operator):
             source_motion = opts.source_motion
             target_motion = opts.target_motion
             actor_obj = self.chr_rlx_cache.get_primary_object()
-            if actor_obj and source_motion and target_motion:
+            if actor_obj and source_motion:
                 current_motion = utils.safe_get_action(actor_obj)
                 duplicate_motion = duplicate_motion_set(source_motion)
                 if duplicate_motion:

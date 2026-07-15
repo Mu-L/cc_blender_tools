@@ -3931,13 +3931,16 @@ class LinkService():
             self.update_sequence(5, delta_frames)
 
     def get_remote_file(self, remote_id, source_path, file_override=None):
+        print(f"remote_id={remote_id}, source_path={source_path}, file_override={file_override}")
         if remote_id:
             remote_files_folder = get_unpacked_tar_file_folder(remote_id)
+            print(f"remote_files_folder={remote_files_folder}")
             if file_override:
                 source_file = file_override
             else:
                 source_folder, source_file = os.path.split(source_path)
             source_path = os.path.join(remote_files_folder, source_file)
+            print(f"source_path={source_path}")
         else:
             if file_override:
                 source_folder = os.path.split(source_path)[0]

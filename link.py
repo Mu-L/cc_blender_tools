@@ -3930,11 +3930,17 @@ class LinkService():
         else:
             self.update_sequence(5, delta_frames)
 
-    def get_remote_file(self, remote_id, source_path, file_override=None):
+    def get_remote_file(self, remote_id: str, source_path: str, file_override=None):
+        if os.pathsep != "\\":
+            source_path.replace("\\", os.pathsep)
         print(f"remote_id={remote_id}, source_path={source_path}, file_override={file_override}")
+        # remote_id=1784145927532161400,
+        # source_path=C:\Users\t3xr9\AppData\Local\Temp\CharacterCreator5Temp\Blender DataLink\exports\Camila\Camila.fbx,
+        # file_override=None
         if remote_id:
             remote_files_folder = get_unpacked_tar_file_folder(remote_id)
             print(f"remote_files_folder={remote_files_folder}")
+            # remote_files_folder=/tmp/tmpbfjel322/imports/1784145927532161400
             if file_override:
                 source_file = file_override
             else:

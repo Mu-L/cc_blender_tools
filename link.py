@@ -3932,7 +3932,7 @@ class LinkService():
 
     def get_remote_file(self, remote_id: str, source_path: str, file_override=None):
         if os.pathsep != "\\":
-            source_path.replace("\\", os.pathsep)
+            source_path = source_path.replace("\\", os.pathsep)
         print(f"remote_id={remote_id}, source_path={source_path}, file_override={file_override}")
         # remote_id=1784145927532161400,
         # source_path=C:\Users\t3xr9\AppData\Local\Temp\CharacterCreator5Temp\Blender DataLink\exports\Camila\Camila.fbx,

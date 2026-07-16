@@ -1107,7 +1107,6 @@ class CC3Import(bpy.types.Operator):
                                               directory=dir,
                                               use_anim=import_anim,
                                               use_custom_normals=not prefs.import_reset_custom_normals,
-                                              mtl_name_collision_mode="MAKE_UNIQUE",
                                               anim_offset=self.start_frame)
                         #bpy.ops.import_scene.fbx(filepath=filepath,
                         #                         directory=dir,

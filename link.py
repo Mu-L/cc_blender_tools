@@ -3930,7 +3930,9 @@ class LinkService():
         else:
             self.update_sequence(5, delta_frames)
 
-    def get_remote_file(self, remote_id, source_path, file_override=None):
+    def get_remote_file(self, remote_id: str, source_path: str, file_override=None):
+        if os.path.sep != "\\":
+            source_path = source_path.replace("\\", os.path.sep)
         if remote_id:
             remote_files_folder = get_unpacked_tar_file_folder(remote_id)
             if file_override:

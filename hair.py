@@ -1567,6 +1567,7 @@ def grease_pencil_to_length_loops(bone_length):
 
     grease_pencil_layer = get_active_grease_pencil_layer()
     if not grease_pencil_layer:
+        utils.log_error(f"Error finding grease pencil layer!")
         return
 
     frame = grease_pencil_layer.active_frame
@@ -1590,6 +1591,7 @@ def grease_pencil_to_bones(chr_cache, arm, parent_mode, bone_length = 0.05,
 
     grease_pencil_layer = get_active_grease_pencil_layer()
     if not grease_pencil_layer:
+        utils.log_error(f"Error finding grease pencil layer!")
         return
 
     # turn off grease pencil on current object / mode (including object mode)
@@ -1651,15 +1653,23 @@ def get_active_grease_pencil_layer():
     #current_frame = bpy.context.scene.frame_current
     #note_layer = bpy.data.grease_pencils['Annotations'].layers.active
     #frame = note_layer.active_frame
-    try:
-        layer_index = bpy.context.scene.grease_pencil.layers.active_index
-        layer = bpy.context.scene.grease_pencil.layers[layer_index]
-        return layer
-    except:
+    if utils.B500():
         try:
-            return bpy.context.scene.grease_pencil.layers.active
+            layer_index = bpy.context.scene.annotation.layers.active_index
+            layer = bpy.context.scene.annotation.layers[layer_index]
+            return layer
         except:
             return None
+    else:
+        try:
+            layer_index = bpy.context.scene.grease_pencil.layers.active_index
+            layer = bpy.context.scene.grease_pencil.layers[layer_index]
+            return layer
+        except:
+            try:
+                return bpy.context.scene.grease_pencil.layers.active
+            except:
+                return None
 
 
 def clear_grease_pencil():
@@ -1673,6 +1683,8 @@ def clear_grease_pencil():
                 active_layer.active_frame.clear()
             except:
                 utils.log_error("Unable to remove active grease pencil frame!")
+    else:
+        utils.log_error(f"Error finding grease pencil layer!")
 
 
 def add_custom_bone(chr_cache, arm, parent_mode, bone_length = 0.05, skip_length = 0.0):

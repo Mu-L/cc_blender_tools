@@ -37,6 +37,8 @@ Links
 - Updated Morph export for Blender 5.1
 - Fix to constraint driver setup with missing shape keys.
 - Fix to Blender 5.1 import operator changes.
+- Fix to Blender 4.5 import fbx.
+- Fix to Blender 5+ grease pencil layers (Spring Rig Generation).
 - Motion Sets & Blending update:
     - Motion sets updated for lights and cameras.
     - Motion blending for light & camera motion sets.

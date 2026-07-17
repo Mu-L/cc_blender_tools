@@ -5303,6 +5303,7 @@ def fetch_action_bone_transform_set_dict(bone_dict, bone_name: str):
 
 
 def fetch_action_bone_transform_set(channelbag, bone_name: str):
+    """Old function for reference"""
     fcurve: bpy.types.FCurve = None
     loc_path = f"pose.bones[\"{bone_name}\"].location"
     rot_sub_path = f"pose.bones[\"{bone_name}\"].rotation"

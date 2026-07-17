@@ -444,7 +444,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = True
             context.scene.eevee.bokeh_max_size = 32.0
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast",
+            colorspace.set_view_settings(view_transform, "Medium High Contrast",
                                          1.0, 0.5)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
@@ -604,7 +604,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_bokeh_jittered = True
                 context.scene.world.use_sun_shadow = True
                 context.scene.world.use_sun_shadow_jitter = True
-                context.scene.world.sun_threshold = 0.1
+                context.scene.world.sun_threshold = 2.5
             else:
                 context.scene.eevee.use_gtao = True
                 context.scene.eevee.gtao_distance = 0.200
@@ -618,7 +618,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = False
             context.scene.eevee.bokeh_max_size = 100.000
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast",
+            colorspace.set_view_settings(view_transform, "Medium High Contrast",
                                          0.000, 0.900)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
@@ -679,7 +679,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_bokeh_jittered = True
                 context.scene.world.use_sun_shadow = True
                 context.scene.world.use_sun_shadow_jitter = True
-                context.scene.world.sun_threshold = 0.1
+                context.scene.world.sun_threshold = 2.5
             else:
                 context.scene.eevee.use_gtao = True
                 context.scene.eevee.gtao_distance = 0.200
@@ -693,7 +693,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = False
             context.scene.eevee.bokeh_max_size = 100.000
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast",
+            colorspace.set_view_settings(view_transform, "Medium High Contrast",
                                          0.000, 1.000)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
@@ -753,7 +753,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_bokeh_jittered = True
                 context.scene.world.use_sun_shadow = True
                 context.scene.world.use_sun_shadow_jitter = True
-                context.scene.world.sun_threshold = 0.1
+                context.scene.world.sun_threshold = 2.5
             else:
                 context.scene.eevee.use_gtao = True
                 context.scene.eevee.gtao_distance = 0.200
@@ -767,7 +767,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = False
             context.scene.eevee.bokeh_max_size = 100.000
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast",
+            colorspace.set_view_settings(view_transform, "Medium High Contrast",
                                          0.000, 1.000)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
@@ -817,7 +817,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_bokeh_jittered = True
                 context.scene.world.use_sun_shadow = True
                 context.scene.world.use_sun_shadow_jitter = True
-                context.scene.world.sun_threshold = 0.1
+                context.scene.world.sun_threshold = 2.5
             else:
                 context.scene.eevee.use_gtao = True
                 context.scene.eevee.gtao_distance = 0.200
@@ -831,7 +831,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = False
             context.scene.eevee.bokeh_max_size = 100.000
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast",
+            colorspace.set_view_settings(view_transform, "Medium High Contrast",
                                          0.000, 1.000)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
@@ -886,7 +886,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_bokeh_jittered = True
                 context.scene.world.use_sun_shadow = True
                 context.scene.world.use_sun_shadow_jitter = True
-                context.scene.world.sun_threshold = 0.1
+                context.scene.world.sun_threshold = 2.5
             else:
                 context.scene.eevee.use_gtao = True
                 context.scene.eevee.gtao_distance = 0.200
@@ -900,7 +900,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = False
             context.scene.eevee.bokeh_max_size = 100.000
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast",
+            colorspace.set_view_settings(view_transform, "Medium High Contrast",
                                          0.000, 1.000)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
@@ -960,7 +960,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_bokeh_jittered = True
                 context.scene.world.use_sun_shadow = True
                 context.scene.world.use_sun_shadow_jitter = True
-                context.scene.world.sun_threshold = 0.1
+                context.scene.world.sun_threshold = 2.5
             else:
                 context.scene.eevee.use_gtao = True
                 context.scene.eevee.gtao_distance = 0.200
@@ -974,7 +974,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = False
             context.scene.eevee.bokeh_max_size = 100.000
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast",
+            colorspace.set_view_settings(view_transform, "Medium High Contrast",
                                          0.000, 1.000)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
@@ -1046,7 +1046,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = True
             context.scene.eevee.bokeh_max_size = 32.0
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast",
+            colorspace.set_view_settings(view_transform, "Medium High Contrast",
                                          0.5, 0.6000000238418579)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
@@ -1122,7 +1122,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = True
             context.scene.eevee.bokeh_max_size = 32.0
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast",
+            colorspace.set_view_settings(view_transform, "Medium High Contrast",
                                          0.800000011920929, 0.550000011920929)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
@@ -1223,7 +1223,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = True
             context.scene.eevee.bokeh_max_size = 32
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast", 0.5, 0.6)
+            colorspace.set_view_settings(view_transform, "Medium High Contrast", 0.5, 0.6)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
 
@@ -1342,7 +1342,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = True
             context.scene.eevee.bokeh_max_size = 32.0
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast",
+            colorspace.set_view_settings(view_transform, "Medium High Contrast",
                                          0.550000011920929, 0.6000000238418579)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
@@ -1474,7 +1474,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = True
             context.scene.eevee.bokeh_max_size = 32
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast", 0.0, 0.8)
+            colorspace.set_view_settings(view_transform, "Medium High Contrast", 0.0, 0.8)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
 
@@ -1585,7 +1585,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = True
             context.scene.eevee.bokeh_max_size = 32.0
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast",
+            colorspace.set_view_settings(view_transform, "Medium High Contrast",
                                          0.0, 0.75)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
@@ -1696,7 +1696,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = True
             context.scene.eevee.bokeh_max_size = 32.0
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast",
+            colorspace.set_view_settings(view_transform, "Medium High Contrast",
                                          0.5, 0.6)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
@@ -1806,7 +1806,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = True
             context.scene.eevee.bokeh_max_size = 32.0
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast",
+            colorspace.set_view_settings(view_transform, "Medium High Contrast",
                                          0.75, 0.5)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
@@ -1928,7 +1928,7 @@ def setup_scene_default(context, scene_type):
                 context.scene.eevee.use_ssr_refraction = True
             context.scene.eevee.bokeh_max_size = 32
             view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-            colorspace.set_view_settings(view_transform, "Medium Contrast", 0.6, 0.6)
+            colorspace.set_view_settings(view_transform, "Medium High Contrast", 0.6, 0.6)
             if context.scene.cycles.transparent_max_bounces < 100:
                 context.scene.cycles.transparent_max_bounces = 100
 
@@ -2215,7 +2215,7 @@ def dump_scene_pycode(context):
                 context.scene.eevee.use_bokeh_jittered = True
                 context.scene.world.use_sun_shadow = True
                 context.scene.world.use_sun_shadow_jitter = True
-                context.scene.world.sun_threshold = 0.1
+                context.scene.world.sun_threshold = 2.5
             else:
                 context.scene.eevee.use_gtao = {context.scene.eevee.use_gtao}
                 context.scene.eevee.gtao_distance = {context.scene.eevee.gtao_distance:.3f}
@@ -2430,20 +2430,23 @@ def create_backdrop(container, color, roughness):
     material: bpy.types.Material = None
     material_name = "Backdrop"
     material_prop = "rl_backdrop_preset"
+    exists = False
     for mat in bpy.data.materials:
         if mat.name.startswith(material_name) and material_prop in mat:
             material = mat
+            exists = True
             break
     if not material:
         material = bpy.data.materials.new(material_name)
         material[material_prop] = True
     if material:
         backdrop.data.materials.append(material)
-        material.use_nodes = True
-        for node in material.node_tree.nodes:
-            if node.type == "BSDF_PRINCIPLED":
-                node.inputs["Base Color"].default_value = color
-                node.inputs["Roughness"].default_value = roughness
+        if not exists:
+            material.use_nodes = True
+            for node in material.node_tree.nodes:
+                if node.type == "BSDF_PRINCIPLED":
+                    node.inputs["Base Color"].default_value = color
+                    node.inputs["Roughness"].default_value = roughness
     return backdrop
 
 
@@ -2543,7 +2546,7 @@ def eevee_setup(context):
             context.scene.eevee.use_bokeh_jittered = True
             context.scene.world.use_sun_shadow = True
             context.scene.world.use_sun_shadow_jitter = True
-            bpy.data.worlds["World"].sun_threshold = 0.05
+            bpy.data.worlds["World"].sun_threshold = 2.5
             bpy.data.worlds["World"].use_sun_shadow = True
         else:
             context.scene.eevee.use_gtao = True

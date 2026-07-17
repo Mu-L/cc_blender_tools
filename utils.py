@@ -2150,7 +2150,6 @@ def make_action_slot(action, slot_type, slot_name):
 def get_action_slot(action: bpy.types.Action, slot_type: str=None, slot_id=None):
     if action and B440():
         for slot in action.slots:
-            print(f"slot.target_id_type={slot.target_id_type}, slot.identifier={slot.identifier} == slot_type={slot_type}, slot_id={slot_id}")
             if slot_type and slot.target_id_type == slot_type:
                 return slot
             if slot_id and slot.identifier == slot_id:

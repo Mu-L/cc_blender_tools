@@ -17,6 +17,7 @@
 import bpy
 from mathutils import Vector, Matrix, Quaternion, Euler
 from random import random
+from enum import IntEnum
 import re, time, os, json
 from . import springbones, bones, facerig, modifiers, rigify_mapping_data, lib, ui, utils, vars
 from typing import List
@@ -4430,6 +4431,75 @@ def finalize_motion_import(chr_cache, rig, motion_rig_action, action_store_id,
         props.delete_action_store(action_store_id)
 
 
+class RotationType(IntEnum):
+    NONE = 0,
+    QUATERNION = 1,
+    EULER = 2,
+    AXIS_ANGLE = 3
+
+
+def make_flat_transform(rot_type: RotationType,
+                        M: Matrix=None,
+                        loc: Vector=None, rot: Quaternion=None):
+    if M:
+        rel_loc = M.to_translation()
+        if rot_type == RotationType.EULER:
+            rel_rot = M.to_euler()
+            return [rel_loc.x, rel_loc.y, rel_loc.z,
+                    rel_rot.x, rel_rot.y, rel_rot.z]
+        elif rot_type == RotationType.AXIS_ANGLE:
+            axis, angle = M.to_quaternion().to_axis_angle()
+            return [rel_loc.x, rel_loc.y, rel_loc.z,
+                    axis.x, axis.y, axis.z, angle]
+        else: # rot_type == RotationType.QUATERNION:
+            rel_rot = M.to_quaternion()
+            return [rel_loc.x, rel_loc.y, rel_loc.z,
+                    rel_rot.w, rel_rot.x, rel_rot.y, rel_rot.z]
+    else:
+        rel_loc = loc
+        if rot_type == RotationType.EULER:
+            rel_rot = rot.to_euler()
+            return [rel_loc.x, rel_loc.y, rel_loc.z,
+                    rel_rot.x, rel_rot.y, rel_rot.z]
+        elif rot_type == RotationType.AXIS_ANGLE:
+            axis, angle = rot.to_axis_angle()
+            return [rel_loc.x, rel_loc.y, rel_loc.z,
+                    axis.x, axis.y, axis.z, angle]
+        else: # rot_type == RotationType.QUATERNION:
+            rel_rot = rot
+            return [rel_loc.x, rel_loc.y, rel_loc.z,
+                    rel_rot.w, rel_rot.x, rel_rot.y, rel_rot.z]
+
+
+def add_resampled_bone_curve(bone_name, i: int, target_rot_type: RotationType, channelbag):
+    INDICES = {0: 0, 1: 1, 2: 2, 3: 0, 4: 1, 5:2, 6:3}
+    index = INDICES[i]
+    if i < 3:
+        data_path = f"pose.bones[\"{bone_name}\"].location"
+    else:
+        if target_rot_type == RotationType.EULER:
+            data_path = f"pose.bones[\"{bone_name}\"].rotation_euler"
+        elif target_rot_type == RotationType.AXIS_ANGLE:
+            data_path = f"pose.bones[\"{bone_name}\"].rotation_axis_angle"
+        else:
+            data_path = f"pose.bones[\"{bone_name}\"].rotation_quaternion"
+    fcurve = channelbag.fcurves.new(data_path, index=index)
+    if fcurve:
+        fcurve.group = get_channelbag_group(channelbag, bone_name)
+        utils.log_detail(f"Added resampled bone fcurve {bone_name}[{i}]")
+    return fcurve
+
+
+def get_bone_rotation_type(rig: bpy.types.Object, bone_name):
+    pose_bone: bpy.types.PoseBone = rig.pose.bones[bone_name]
+    if pose_bone.rotation_mode == "QUATERNION":
+        return RotationType.QUATERNION
+    elif pose_bone.rotation_mode == "AXIS_ANGLE":
+        return RotationType.AXIS_ANGLE
+    else:
+        return RotationType.EULER
+
+
 def resample_relative_root(rig, motion_action, motion_slot, stored_action, stored_slot, from_frame):
     root_bone_name = rig.pose.bones[0].name
     motion_channelbag = utils.get_action_channelbag(motion_action, slot=motion_slot)
@@ -4438,6 +4508,7 @@ def resample_relative_root(rig, motion_action, motion_slot, stored_action, store
     motion_transform_set, motion_has_curves = fetch_action_bone_transform_set(motion_channelbag, root_bone_name)
     stored_start_loc, stored_start_rot = evaluate_action_bone_transform_set(stored_transform_set, from_frame)
     motion_start_loc, motion_start_rot = evaluate_action_bone_transform_set(motion_transform_set, 1)
+    target_rot_type: RotationType = motion_transform_set[2]
 
     utils.log_info(f"Resampling root motion: {motion_action.name}")
 
@@ -4447,7 +4518,7 @@ def resample_relative_root(rig, motion_action, motion_slot, stored_action, store
     MD = MS @ MM.inverted()
 
     # build a list of motion root transform fcurves
-    motion_loc_curves, motion_rot_curves = motion_transform_set
+    motion_loc_curves, motion_rot_curves, motion_rot_type = motion_transform_set
     motion_curves = motion_loc_curves + motion_rot_curves
     # should be 7
     num_curves = len(motion_curves)
@@ -4457,11 +4528,12 @@ def resample_relative_root(rig, motion_action, motion_slot, stored_action, store
     frames = set()
     fcurve: bpy.types.FCurve = None
     for fcurve in motion_curves:
-        num_points = len(fcurve.keyframe_points)
-        data = [0.0, 0.0] * num_points
-        fcurve.keyframe_points.foreach_get('co', data)
-        for i in range(0, len(data), 2):
-            frames.add(data[i])
+        if fcurve:
+            num_points = len(fcurve.keyframe_points)
+            data = [0.0, 0.0] * num_points
+            fcurve.keyframe_points.foreach_get('co', data)
+            for i in range(0, len(data), 2):
+                frames.add(data[i])
 
     # sort the frames in order
     num_frames = len(frames)
@@ -4481,23 +4553,20 @@ def resample_relative_root(rig, motion_action, motion_slot, stored_action, store
         motion_loc, motion_rot = evaluate_action_bone_transform_set(motion_transform_set, frame)
         MF = utils.make_transform_matrix(motion_loc, motion_rot)
         MR = MD @ MF
-        rel_loc = MR.to_translation()
-        rel_rot = MR.to_quaternion()
-        flat_transform = [rel_loc.x, rel_loc.y, rel_loc.z,
-                          rel_rot.w, rel_rot.x, rel_rot.y, rel_rot.z]
+        flat_transform = make_flat_transform(target_rot_type, M=MR)
         # write to the resampled curve data
         index = f * 2
-        for i in range(0, num_curves):
+        for i in range(0, len(flat_transform)):
             resampled_data[i][index] = frame
             resampled_data[i][index+1] = flat_transform[i]
 
     # write the resampled transposed curve data back to the motion root transform curves
     for i, fcurve in enumerate(motion_curves):
-        fcurve.keyframe_points.clear()
-        fcurve.keyframe_points.add(num_frames)
-        fcurve.keyframe_points.foreach_set('co', resampled_data[i])
-        reset_fcurve_interpolation(fcurve)
-
+        if fcurve:
+            fcurve.keyframe_points.clear()
+            fcurve.keyframe_points.add(num_frames)
+            fcurve.keyframe_points.foreach_set('co', resampled_data[i])
+            reset_fcurve_interpolation(fcurve)
     return
 
 
@@ -4720,11 +4789,14 @@ def blend_bone_curves(motion_channel, stored_channel,
 
     root_bone: bpy.types.PoseBone = rig.pose.bones[0]
 
+    motion_bone_dict = get_bone_transform_dict(motion_channelbag)
+    stored_bone_dict = get_bone_transform_dict(stored_channelbag)
+
     for bone_name in bone_names:
 
         is_root = (bone_name == root_bone.name)
-        motion_transform_set, motion_has_curves = fetch_action_bone_transform_set(motion_channelbag, bone_name)
-        stored_transform_set, stored_has_curves = fetch_action_bone_transform_set(stored_channelbag, bone_name)
+        motion_transform_set, motion_has_curves = fetch_action_bone_transform_set_dict(motion_bone_dict, bone_name)
+        stored_transform_set, stored_has_curves = fetch_action_bone_transform_set_dict(stored_bone_dict, bone_name)
 
         if not motion_has_curves and not stored_has_curves:
             continue
@@ -4743,18 +4815,19 @@ def blend_bone_curves(motion_channel, stored_channel,
             MM = utils.make_transform_matrix(motion_start_loc, motion_start_rot)
             MD = MS @ MM.inverted()
 
-
         utils.log_detail(f"Blending motion bone: {bone_name} {from_frame}-{to_frame}")
 
         # build a list of motion bone transform fcurves
-        motion_loc_curves, motion_rot_curves = motion_transform_set
+        motion_loc_curves, motion_rot_curves, motion_rot_type = motion_transform_set
         motion_curves = motion_loc_curves + motion_rot_curves
         # should be 7
         num_curves = len(motion_curves)
 
         # build a list of stored bone transform fcurves
-        stored_loc_curves, stored_rot_curves = stored_transform_set
+        stored_loc_curves, stored_rot_curves, stored_rot_type = stored_transform_set
         stored_curves = stored_loc_curves + stored_rot_curves
+
+        target_rot_type = get_bone_rotation_type(rig, bone_name)
 
         frames = base_frames.copy()
 
@@ -4832,17 +4905,16 @@ def blend_bone_curves(motion_channel, stored_channel,
                     blend_loc = stored_loc.lerp(motion_loc, blend_strength)
                     blend_rot = stored_rot.slerp(motion_rot, blend_strength)
 
-            # if not blending, use the motion transform directly
+            # if not blending or overwriting, use the motion transform directly
             else:
                 blend_loc = motion_loc
                 blend_rot = motion_rot
 
-            transform_data = [blend_loc.x, blend_loc.y, blend_loc.z,
-                                blend_rot.w, blend_rot.x, blend_rot.y, blend_rot.z]
+            transform_data = make_flat_transform(target_rot_type, loc=blend_loc, rot=blend_rot)
 
             # write frame to the resampled curve data:
             index = f * 2
-            for i in range(0, num_curves):
+            for i in range(0, len(transform_data)):
                 resampled_data[i][index] = frame
                 resampled_data[i][index+1] = transform_data[i]
 
@@ -4852,10 +4924,11 @@ def blend_bone_curves(motion_channel, stored_channel,
                 if processed_fcurves:
                     if fcurve and fcurve in processed_fcurves: continue
                     processed_fcurves.append(fcurve)
+                if fcurve and stored_rot_type != target_rot_type:
+                    stored_channelbag.fcurves.remove(fcurve)
+                    fcurve = None
                 if not fcurve:
-                    fcurve = clone_fcurve_to_channel(motion_curves[i], stored_channelbag)
-                    if fcurve:
-                        utils.log_detail(f"Added bone fcurve {bone_name}[{i}]")
+                    fcurve = add_resampled_bone_curve(bone_name, i, target_rot_type, stored_channelbag)
                 if fcurve:
                     fcurve.keyframe_points.clear()
                     fcurve.keyframe_points.add(num_frames)
@@ -4867,10 +4940,11 @@ def blend_bone_curves(motion_channel, stored_channel,
                 if processed_fcurves:
                     if fcurve and fcurve in processed_fcurves: continue
                     processed_fcurves.append(fcurve)
+                if fcurve and motion_rot_type != target_rot_type:
+                    motion_channelbag.fcurves.remove(fcurve)
+                    fcurve = None
                 if not fcurve:
-                    fcurve = clone_fcurve_to_channel(stored_curves[i], motion_channelbag)
-                    if fcurve:
-                        utils.log_detail(f"Added bone fcurve {bone_name}[{i}]")
+                    fcurve = add_resampled_bone_curve(bone_name, i, target_rot_type, motion_channelbag)
                 if fcurve:
                     fcurve.keyframe_points.clear()
                     fcurve.keyframe_points.add(num_frames)
@@ -5180,41 +5254,114 @@ def fetch_action_key_curve(channelbag, key_name: str):
     return None
 
 
+def get_bone_transform_dict(channelbag):
+    curves_by_bone = {}
+    if channelbag:
+        for fcurve in channelbag.fcurves:
+            if fcurve:
+                data_path = fcurve.data_path
+                if data_path.startswith("pose.bones["):
+                    bone_name = data_path[12:data_path.find('"', 12)]
+                    if bone_name not in curves_by_bone:
+                        curves_by_bone[bone_name] = []
+                    curves_by_bone[bone_name].append(fcurve)
+    bone_dict = {}
+    for bone_name, fcurves in curves_by_bone.items():
+        loc_curves = [None, None, None]
+        rot_curves = [None, None, None, None]
+        rot_type = RotationType.NONE
+        has_curves = False
+        for fcurve in fcurves:
+            has_curves = True
+            if fcurve.data_path.endswith(".location"):
+                loc_curves[fcurve.array_index] = fcurve
+            elif fcurve.data_path.endswith(".rotation_quaternion"):
+                rot_curves[fcurve.array_index] = fcurve
+                if rot_type == RotationType.NONE:
+                    rot_type = RotationType.QUATERNION
+            elif fcurve.data_path.endswith(".rotation_euler"):
+                rot_curves[fcurve.array_index] = fcurve
+                if rot_type == RotationType.NONE:
+                    rot_type = RotationType.EULER
+            elif fcurve.data_path.endswith(".rotation_axis_angle"):
+                rot_curves[fcurve.array_index] = fcurve
+                if rot_type == RotationType.NONE:
+                    rot_type = RotationType.AXIS_ANGLE
+        bone_dict[bone_name] = (loc_curves, rot_curves, rot_type, has_curves)
+    return bone_dict
+
+
+def fetch_action_bone_transform_set_dict(bone_dict, bone_name: str):
+    if bone_name in bone_dict:
+        loc_curves, rot_curves, rot_type, has_curves = bone_dict[bone_name]
+    else:
+        loc_curves = [None, None, None]
+        rot_curves = [None, None, None, None]
+        rot_type = RotationType.NONE
+        has_curves = False
+    return (loc_curves, rot_curves, rot_type), has_curves
+
+
 def fetch_action_bone_transform_set(channelbag, bone_name: str):
-    # TODO instead build a dict in one pass of transforms[bone_name] = (loc[fx,fy,fz], rot[fw,fx,fy,fz])
+    """Old function for reference"""
     fcurve: bpy.types.FCurve = None
     loc_path = f"pose.bones[\"{bone_name}\"].location"
-    rot_path = f"pose.bones[\"{bone_name}\"].rotation_quaternion"
-    # TODO what if it's not a quaternion?
+    rot_sub_path = f"pose.bones[\"{bone_name}\"].rotation"
     loc_curves = [None, None, None]
     rot_curves = [None, None, None, None]
-    has_loc_curves = False
-    has_rot_curves = False
+    rot_type = RotationType.NONE
+    has_curves = False
     if channelbag:
         for fcurve in channelbag.fcurves:
             if fcurve.data_path == loc_path:
                 loc_curves[fcurve.array_index] = fcurve
-                has_loc_curves = True
-            elif fcurve.data_path == rot_path:
+                has_curves = True
+            elif fcurve.data_path.startswith(rot_sub_path):
                 rot_curves[fcurve.array_index] = fcurve
-                has_rot_curves = True
-    return (loc_curves, rot_curves), has_loc_curves or has_rot_curves
+                has_curves = True
+                if rot_type == RotationType.NONE:
+                    if fcurve.data_path.endswith("_euler"):
+                        rot_type = RotationType.EULER
+                    elif fcurve.data_path.endswith("_axis_angle"):
+                        rot_type = RotationType.AXIS_ANGLE
+                    else:
+                        rot_type = RotationType.QUATERNION
+    return (loc_curves, rot_curves, rot_type), has_curves
 
 
 def evaluate_action_bone_transform_set(transform_set: tuple, frame: int):
-    loc_curves, rot_curves = transform_set
+    loc_curves, rot_curves, rotation_type = transform_set
     try:
         loc = Vector((loc_curves[0].evaluate(frame),
                       loc_curves[1].evaluate(frame),
                       loc_curves[2].evaluate(frame)))
     except:
         loc = Vector((0,0,0))
-    try:
-        rot = Quaternion((rot_curves[0].evaluate(frame),
-                          rot_curves[1].evaluate(frame),
-                          rot_curves[2].evaluate(frame),
-                          rot_curves[3].evaluate(frame)))
-    except:
+    if rotation_type == RotationType.QUATERNION:
+        try:
+            rot = Quaternion((rot_curves[0].evaluate(frame),
+                            rot_curves[1].evaluate(frame),
+                            rot_curves[2].evaluate(frame),
+                            rot_curves[3].evaluate(frame)))
+        except:
+            rot = Quaternion((1,0,0,0))
+    elif rotation_type == RotationType.EULER:
+        try:
+            rot = Euler((rot_curves[0].evaluate(frame),
+                         rot_curves[1].evaluate(frame),
+                         rot_curves[2].evaluate(frame))).to_quaternion()
+        except:
+            rot = Quaternion((1,0,0,0))
+    elif rotation_type == RotationType.AXIS_ANGLE:
+        try:
+            axis = (rot_curves[0].evaluate(frame),
+                    rot_curves[1].evaluate(frame),
+                    rot_curves[2].evaluate(frame))
+            angle = rot_curves[3]
+            rot = utils.axis_angle_to_quaternion(axis, angle)
+        except:
+            rot = Quaternion((1,0,0,0))
+    else:
         rot = Quaternion((1,0,0,0))
     return loc, rot
 

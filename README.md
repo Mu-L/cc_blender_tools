@@ -44,6 +44,9 @@ Links
     - Motion blending for light & camera motion sets.
     - Motion blending always generates a new motion (non-destructive)
     - Datalink Pose and Sequence now write onto current motion.
+    - Pose & Sequence bone blending optimization.
+    - Pose & Sequence no longer keyframe face rig UI shapes.
+    - Fix for blending all bone rotation types.
 
 ### 2.4.1
 - Mesh modify pipeline.

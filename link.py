@@ -1070,7 +1070,15 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
                 #    - adv pair rigs now resets all pose bones.
                 BAKE_BONE_EXCLUSIONS = [
                     "thigh_ik.L", "thigh_ik.R", "thigh_parent.L", "thigh_parent.R",
-                    "upper_arm_ik.L", "upper_arm_ik.R", "upper_arm_parent.L", "upper_arm_parent.R"
+                    "upper_arm_ik.L", "upper_arm_ik.R", "upper_arm_parent.L", "upper_arm_parent.R",
+                    "facerig", "facerig2",
+                ]
+                BAKE_BONE_PREFIX_SUFFIX_EXCLUSIONS = [
+                    ("CTRL_", "_line"),
+                    ("CTRL_", "_box"),
+                    ("facerig", "name"),
+                    ("facerig", "groups"),
+                    ("facerig", "labels"),
                 ]
                 BAKE_BONE_LAYERS = [0,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,22,28]
                 SHOW_BONE_LAYERS = [ 23 ]
@@ -1087,11 +1095,20 @@ def prep_pose_actor(actor: LinkActor, start_frame, end_frame):
                         bone = pose_bone.bone
                         if bones.is_bone_in_collections(rig, bone, BAKE_BONE_COLLECTIONS,
                                                                    BAKE_BONE_GROUPS):
-                            if bone.name not in BAKE_BONE_EXCLUSIONS:
+                            exclude_bone = False
+                            for prefix, suffix in BAKE_BONE_PREFIX_SUFFIX_EXCLUSIONS:
+                                if not prefix or bone.name.startswith(prefix):
+                                    if not suffix or bone.name.endswith(suffix):
+                                        exclude_bone = True
+                                        break
+                            if bone.name in BAKE_BONE_EXCLUSIONS:
+                                exclude_bone = True
+                            if not exclude_bone:
                                 bone.hide = False
                                 if bones.can_unlock(pose_bone):
                                     bone.hide_select = False
                                 bones.select_bone(rig, bone, True)
+
             else:
                 if utils.object_mode_to(rig):
                     bone: bpy.types.Bone
@@ -3308,7 +3325,7 @@ class LinkService():
             bpy.context.scene.eevee.use_ssr_refraction = True
         bpy.context.scene.eevee.bokeh_max_size = 32
         view_transform = prefs.lighting_use_look if utils.B400() else "Filmic"
-        colorspace.set_view_settings(view_transform, "Medium Contrast", 0, 0.75)
+        colorspace.set_view_settings(view_transform, "Medium High Contrast", 0, 0.75)
         if bpy.context.scene.cycles.transparent_max_bounces < 100:
             bpy.context.scene.cycles.transparent_max_bounces = 100
         view_space = utils.get_view_3d_space()

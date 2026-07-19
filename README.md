@@ -39,10 +39,15 @@ Links
 - Fix to Blender 5.1 import operator changes.
 - Fix to Blender 4.5 import fbx.
 - Fix to Blender 5+ grease pencil layers (Spring Rig Generation).
+- Fix to Linux remote datalink compatibility.
+- Fix to axis angle bone rotation calculations.
 - Motion Sets & Blending update:
     - Motion sets updated for lights and cameras.
     - Motion blending for light & camera motion sets.
     - Motion blending always generates a new motion (non-destructive)
+    - Motion loading will factor bone rotations if different on rig.
+        - (And not already keyframed for that rotation type)
+    - Motion blending now also blends scale.
     - Datalink Pose and Sequence now write onto current motion.
     - Pose & Sequence bone blending optimization.
     - Pose & Sequence no longer keyframe face rig UI shapes.

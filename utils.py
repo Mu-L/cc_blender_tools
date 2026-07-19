@@ -1965,7 +1965,7 @@ def reset_object_transform(obj: bpy.types.Object):
     obj.location = Vector((0,0,0))
     obj.rotation_quaternion = Quaternion((1.0, 0.0, 0.0, 0.0))
     obj.rotation_euler = Euler((0.0, -0.0, 0.0), 'XYZ')
-    obj.rotation_axis_angle = [0,0,0,0]
+    obj.rotation_axis_angle = [0,0,1,0]
 
 
 def get_region_3d(context=None):
@@ -3006,8 +3006,8 @@ def get_transform_rotation(obj: bpy.types.Object) -> Quaternion:
         if obj.rotation_mode == "QUATERNION":
             return obj.rotation_quaternion.copy()
         elif obj.rotation_mode == "AXIS_ANGLE":
-            axis = obj.rotation_axis_angle[0:3]
-            angle = obj.rotation_axis_angle[3]
+            angle = obj.rotation_axis_angle[0]
+            axis = obj.rotation_axis_angle[1:]
             return axis_angle_to_quaternion(axis, angle)
         else:
             return obj.rotation_euler.to_quaternion()

@@ -1427,7 +1427,7 @@ def write_sequence_actions(actor: LinkActor, num_frames, start_frame):
                 utils.safe_set_action(obj.data.shape_keys, None)
 
             if rig_action:
-                rigutils.load_motion_set(rig, rig_action)
+                rigutils.load_motion_set(rig, rig_action, refactor_rotations=False)
                 rigutils.finalize_motion_import(actor.get_chr_cache(), rig, rig_action, actor.action_store_id,
                                                 overwrite=True)
 
